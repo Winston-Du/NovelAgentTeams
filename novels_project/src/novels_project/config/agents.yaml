@@ -1,0 +1,4 @@
+# 小说创作系统 - Agent 配置
+# 实际 Agent 定义在 crew.py 中通过 @agent 装饰器定义。
+# 此文件保持为空映射，避免占位符 agent 触发 CrewAI 的变量映射错误。
+{}
