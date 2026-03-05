@@ -1,0 +1,46 @@
+metadata:
+  created_at: '2026-03-05T22:38:58.678110'
+  version: '1.0'
+  description: 校对反馈库 - 记录发现的问题供后续创作参考
+  last_updated: '2026-03-05T22:38:58.682312'
+  total_feedback: 3
+feedback_by_type:
+  对话风格偏离:
+  - FB_20260305223858_1
+  - FB_20260305223858_1
+  Tell而非Show:
+  - FB_20260305223858_1
+feedback_by_character:
+  陆商曜:
+  - FB_20260305223858_1
+  - FB_20260305223858_1
+  黑商周桓:
+  - FB_20260305223858_1
+feedback_history:
+- id: FB_20260305223858_1
+  chapter_id: 1
+  issue_type: 对话风格偏离
+  character: 陆商曜
+  original_text: 这个情况非常复杂，我需要仔细分析一下各种可能性才能做出决定
+  problem: 陆商曜不应该过度解释，应该言简意赅
+  fix_applied: 三成换一个安稳，贵了。
+  severity: high
+  created_at: '2026-03-05T22:38:58.679182'
+- id: FB_20260305223858_1
+  chapter_id: 1
+  issue_type: 对话风格偏离
+  character: 黑商周桓
+  original_text: 根据我的分析，这个合同存在一些问题
+  problem: 黑商周桓不应该显得聪慧
+  fix_applied: 少废话！签不签？
+  severity: high
+  created_at: '2026-03-05T22:38:58.680585'
+- id: FB_20260305223858_1
+  chapter_id: 1
+  issue_type: Tell而非Show
+  character: 陆商曜
+  original_text: 陆商曜很镇定
+  problem: 直接描述情感，违反Show not Tell原则
+  fix_applied: 陆商曜拨动算盘，珠声在掌心里轻轻滚
+  severity: medium
+  created_at: '2026-03-05T22:38:58.682310'

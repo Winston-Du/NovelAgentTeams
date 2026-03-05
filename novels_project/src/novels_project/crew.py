@@ -11,6 +11,8 @@ from pathlib import Path
 
 # 导入工具和日志
 from .tools.sample_retriever import retrieve_writing_samples
+from .tools.character_voice_checker import check_character_voice, get_character_voice_guide
+from .tools.feedback_tools import retrieve_feedback, get_common_mistakes, record_feedback, record_batch_feedback
 from .logger import ExecutionLogger, MetricsCollector
 
 
@@ -132,8 +134,16 @@ class NovelsCrewAI():
 你擅长通过动作、对话、环境细节来表现人物和故事。
 你的文字有节奏、有质感、有余韵，能让读者沉浸其中。
 你熟悉东方玄幻的叙事语言，能驾驭权谋对话和战斗场面。
-你拒绝"然后...接着...最后..."的流水账，每一句话都经过精心雕琢。""",
-            tools=[retrieve_writing_samples],
+你拒绝"然后...接着...最后..."的流水账，每一句话都经过精心雕琢。
+写作完成后，你会使用 check_character_voice 工具检查对话风格一致性。
+你也会检索历史反馈，避免重复犯错。""",
+            tools=[
+                retrieve_writing_samples, 
+                check_character_voice, 
+                get_character_voice_guide,
+                retrieve_feedback,
+                get_common_mistakes
+            ],
             llm=self.llm_qwen,
             verbose=True,
             allow_delegation=False,
@@ -150,8 +160,18 @@ class NovelsCrewAI():
 你能发现微妙的逻辑漏洞、不和谐的节奏、飘忽的人物设定。
 你深知"魔鬼藏在细节中"，任何不自然的表达都逃不过你的眼睛。
 你不仅会指出问题，更会给出优化后的版本。
-你的最终目标是让每一章都成为精品。""",
-            tools=[retrieve_writing_samples],
+你的最终目标是让每一章都成为精品。
+校对时，你会使用 check_character_voice 工具确保对话风格与人物卡库一致。
+发现的问题会记录到反馈库，供后续创作参考。""",
+            tools=[
+                retrieve_writing_samples, 
+                check_character_voice, 
+                get_character_voice_guide,
+                retrieve_feedback,
+                get_common_mistakes,
+                record_feedback,
+                record_batch_feedback
+            ],
             llm=self.llm_gemini,
             verbose=True,
             allow_delegation=False,

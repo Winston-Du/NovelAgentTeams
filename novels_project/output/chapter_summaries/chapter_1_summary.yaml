@@ -1,0 +1,35 @@
+chapter_id: 1
+character_status_updates:
+  木九公:
+    relationship_updates: {}
+    status_change: 观察者 -> 潜在支持者
+  陆商曜:
+    relationship_updates:
+      木九公: 信任度提升 (暗中认可)
+      黑商周桓: 敌对度 MAX (仇恨值拉满)
+    status_change: 从‘落魄少爷’转变为‘有手段的掌柜’，确立智谋型人设。
+  黑商周桓:
+    relationship_updates: {}
+    status_change: 嚣张 -> 挫败且怀恨在心
+foreshadowing_status:
+  buried_foreshadowing:
+  - content: 木九公喃喃自语‘那印……似有回响’
+    meaning: 暗示木九公知道古印的来历，身份不简单。
+  - content: 古印因‘驳斥不公契约’而发热
+    meaning: 暗示金手指的升级/获取力量机制与‘维护契约公平/签订契约’有关。
+  resolved_foreshadowing: []
+info_for_next_chapter:
+  character_status_snapshot: 陆商曜冷静思考对策；周桓暂时不敢上门骚扰。
+  plot_continuity: 下一章应紧接‘古印觉醒’的具体表现，以及陆商曜利用金手指解决‘三日筹款’难题的行动。
+open_questions:
+- 陆商曜要如何在三日内凑齐本金（虽然利息免了，但本金仍是巨款）？
+- 古印觉醒后会带来什么具体能力？
+- 木九公到底是什么身份？
+story_progress:
+  forward_momentum: 危机暂时解除，但三日后的还款压力迫在眉睫，同时金手指开启，故事即将进入发展期。
+  key_events:
+  - 黑商周桓携打手逼债，索要陆家铺子地契。
+  - 铁阙出手震慑打手，确立了“对方不敢动武”的安全底线。
+  - 陆商曜引用《大周商律》驳斥“九出十三归”为非法，反将周桓一军。
+  - 周桓被迫定下“三日之期”后狼狈撤退。
+  - 陆商曜触碰契约，体内“契约古印”首次产生感应，金光微现。

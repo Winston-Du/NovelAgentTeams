@@ -140,7 +140,57 @@ export COMPANY_API_KEY=your_api_key
 ### 问题：模型不支持
 **解决方案**：检查模型名称是否在 `SUPPORTED_MODELS` 列表中
 
+## Embedding 模型配置（SiliconFlow）
+
+### 概述
+
+本项目使用 SiliconFlow 提供的 Embedding API 进行样例检索的向量化。
+
+- **API 提供商**：[SiliconFlow](https://siliconflow.cn/)
+- **默认模型**：`BAAI/bge-large-zh-v1.5`（中文优化，512 tokens，1024 维）
+- **API 端点**：`https://api.siliconflow.cn/v1`
+- **API 文档**：[SiliconFlow Embeddings API](https://docs.siliconflow.cn/cn/api-reference/embeddings/create-embeddings)
+
+### 环境变量
+
+```bash
+# SiliconFlow Embedding API Key（必需）
+export SILICONFLOW_API_KEY=your_siliconflow_api_key
+```
+
+### 支持的 Embedding 模型
+
+| 简称 | 完整模型名 | 说明 |
+|------|-----------|------|
+| `bge-large-zh` | `BAAI/bge-large-zh-v1.5` | 中文，512 tokens，1024 维（**默认**） |
+| `bge-large-en` | `BAAI/bge-large-en-v1.5` | 英文，512 tokens，1024 维 |
+| `bge-m3` | `BAAI/bge-m3` | 多语言，8192 tokens，1024 维 |
+| `bge-m3-pro` | `Pro/BAAI/bge-m3` | 多语言增强版，8192 tokens |
+| `qwen3-embedding-8b` | `Qwen/Qwen3-Embedding-8B` | 32768 tokens，可调维度 |
+| `qwen3-embedding-4b` | `Qwen/Qwen3-Embedding-4B` | 32768 tokens，可调维度 |
+| `qwen3-embedding-0.6b` | `Qwen/Qwen3-Embedding-0.6B` | 32768 tokens，可调维度 |
+
+### API 调用示例
+
+```bash
+curl --request POST \
+  --url https://api.siliconflow.cn/v1/embeddings \
+  --header "Authorization: Bearer $SILICONFLOW_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "BAAI/bge-large-zh-v1.5",
+    "input": "硅基流动",
+    "encoding_format": "float"
+  }'
+```
+
+### 注意事项
+
+- 更换 Embedding 模型后，需要删除旧的向量库数据并重新构建（不同模型的维度可能不兼容）
+- 首次运行或重建向量库时，系统会自动调用 SiliconFlow Embedding API
+
 ## 参考资源
 
 - [CrewAI 官方文档](https://docs.crewai.com)
 - [OpenAI API 兼容格式](https://platform.openai.com/docs/api-reference)
+- [SiliconFlow API 文档](https://docs.siliconflow.cn/cn/api-reference/embeddings/create-embeddings)

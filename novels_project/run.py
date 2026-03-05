@@ -5,6 +5,7 @@
 import sys
 import argparse
 import yaml
+import re
 from pathlib import Path
 
 # 添加 src 到路径
@@ -24,13 +25,10 @@ def load_chapter_outline(chapter_id: int, outline_file: str = None) -> dict:
     Returns:
         包含章节信息的字典
     """
-    # 简化版：直接从 First/大纲.md 提取
-    # 实际使用时可以解析 Markdown 文件
     if outline_file:
-        # TODO: 实现从文件读取
-        pass
+        print(f"⚠️  --outline 参数尚未实现，使用内置测试数据")
 
-    # MVP 测试数据
+    # MVP 测试数据 - 使用正确的人物设定
     return {
         "volume_id": "卷一",
         "volume_target": "立信立威，初谋关税",
@@ -41,6 +39,12 @@ def load_chapter_outline(chapter_id: int, outline_file: str = None) -> dict:
         "pace_label": "快",
         "planned_climax": ["打脸", "经营", "立威"],
         "previous_chapter_summary": None,  # 第1章无前章摘要
+        "story_world": {
+            "setting": "大周朝，商业繁荣但帮派横行",
+            "protagonist": "陆商曜",
+            "protagonist_identity": "落魄商族庶子，掌握契约古印",
+            "key_rules": ["《大周商律》是法律体系", "契约古印是主角金手指"]
+        }
     }
 
 
@@ -68,6 +72,78 @@ def load_character_cards(cards_file: str = None) -> dict:
     return data
 
 
+def parse_yaml_from_output(output_text: str) -> dict:
+    """
+    从输出文本中解析 YAML 内容
+
+    Args:
+        output_text: 包含 YAML 的文本
+
+    Returns:
+        解析后的字典
+    """
+    if not output_text:
+        return {}
+
+    # 尝试提取 ```yaml ... ``` 中的内容
+    yaml_pattern = r'```yaml\s*(.*?)\s*```'
+    matches = re.findall(yaml_pattern, output_text, re.DOTALL)
+
+    if matches:
+        # 取最后一个匹配（通常是最终版本）
+        yaml_content = matches[-1]
+        try:
+            return yaml.safe_load(yaml_content)
+        except yaml.YAMLError:
+            pass
+
+    # 如果没有找到代码块，尝试直接解析
+    try:
+        result = yaml.safe_load(output_text)
+        if isinstance(result, dict):
+            return result
+        return {}
+    except yaml.YAMLError:
+        print("⚠️  无法从输出中解析 YAML，将保存原始输出")
+        return {}
+
+
+def extract_final_content(result: dict) -> dict:
+    """
+    从结果中提取最终内容
+
+    Args:
+        result: Crew 执行结果
+
+    Returns:
+        包含 final_content 和 summary_card 的字典
+    """
+    output_text = str(result.get('result', ''))
+
+    # 解析 YAML
+    parsed = parse_yaml_from_output(output_text)
+
+    final_content = ""
+    summary_card = {}
+
+    # 提取最终章节内容
+    if 'chapter_final' in parsed:
+        final_content = parsed['chapter_final'].get('final_content', '')
+    elif 'chapter_draft' in parsed:
+        final_content = parsed['chapter_draft'].get('content', '')
+
+    # 提取章节摘要卡
+    if 'chapter_summary_card' in parsed:
+        summary_card = parsed['chapter_summary_card']
+
+    return {
+        'final_content': final_content,
+        'summary_card': summary_card,
+        'proofreading_log': parsed.get('chapter_final', {}).get('proofreading_log', {}),
+        'raw_output': output_text
+    }
+
+
 def save_output(chapter_id: int, result: dict):
     """
     保存输出文件
@@ -79,18 +155,42 @@ def save_output(chapter_id: int, result: dict):
     output_dir = Path("output")
     chapters_dir = output_dir / "chapters"
     summaries_dir = output_dir / "chapter_summaries"
+    raw_dir = output_dir / "raw_outputs"
 
     chapters_dir.mkdir(parents=True, exist_ok=True)
     summaries_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # 保存最终版章节（简化版，实际需要解析 YAML）
+    # 提取内容
+    extracted = extract_final_content(result)
+    final_content = extracted['final_content']
+    summary_card = extracted['summary_card']
+
+    # 保存最终版章节（纯文本格式）
     chapter_file = chapters_dir / f"chapter_{chapter_id}_final.md"
     with open(chapter_file, 'w', encoding='utf-8') as f:
+        # 写入标题
         f.write(f"# 第 {chapter_id} 章\n\n")
-        f.write(str(result.get('result', '')))
-
-    print(f"\n✅ 输出已保存：")
+        # 写入正文
+        if final_content:
+            f.write(final_content)
+        else:
+            # 如果无法解析，保存原始输出
+            f.write(extracted['raw_output'])
     print(f"   章节: {chapter_file}")
+
+    # 保存章节摘要卡（YAML 格式）
+    if summary_card:
+        summary_file = summaries_dir / f"chapter_{chapter_id}_summary.yaml"
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            yaml.dump(summary_card, f, allow_unicode=True, default_flow_style=False)
+        print(f"   摘要: {summary_file}")
+
+    # 保存原始输出（用于调试）
+    raw_file = raw_dir / f"chapter_{chapter_id}_raw.yaml"
+    with open(raw_file, 'w', encoding='utf-8') as f:
+        f.write(extracted['raw_output'])
+    print(f"   原始: {raw_file}")
 
 
 def main():
@@ -100,6 +200,7 @@ def main():
     parser.add_argument('--model', type=str, help='指定模型名称')
     parser.add_argument('--outline', type=str, help='大纲文件路径')
     parser.add_argument('--dry-run', action='store_true', help='模拟运行（不调用 LLM）')
+    parser.add_argument('--init-vectordb', action='store_true', help='初始化向量库')
 
     args = parser.parse_args()
 
@@ -108,10 +209,25 @@ def main():
     print("=" * 60)
     print()
 
+    # 初始化向量库模式
+    if args.init_vectordb:
+        print("📚 初始化向量库...")
+        from novels_project.retrieval_engine import get_retrieval_engine
+        engine = get_retrieval_engine()
+        engine._ensure_initialized()
+        if engine.vectorstore:
+            print("✅ 向量库初始化完成")
+        else:
+            print("⚠️  向量库初始化失败，请检查样例目录和 API 配置")
+        return
+
     # 加载数据
     print("📖 加载章节信息...")
     chapter_info = load_chapter_outline(args.chapter, args.outline)
-    print(f"   章节: 第 {args.chapter} 章 - {chapter_info['chapter_title']}")
+    print(f"   章节: 第 {args.chapter} 章 - {chapter_info.get('chapter_title', '未知')}")
+    story_world = chapter_info.get('story_world', {})
+    if story_world:
+        print(f"   主角: {story_world.get('protagonist', '未指定')} ({story_world.get('protagonist_identity', '未指定')})")
 
     print("👥 加载人物卡库...")
     try:
@@ -121,6 +237,7 @@ def main():
             for tier in [character_cards.get('s_tier', {}), character_cards.get('a_tier', {})]
         )
         print(f"   人物数: {char_count}")
+        print(f"   主角: {character_cards.get('s_tier', {}).get('characters', {}).get('陆商曜', {}).get('name', '未设置')}")
     except FileNotFoundError as e:
         print(f"   ❌ {e}")
         print("\n请先准备人物卡库，参考 MVP_QUICKSTART.md")
@@ -140,7 +257,7 @@ def main():
         return
 
     # 初始化 Crew
-    print(f"\n🤖 初始化 CrewAI（模型: {args.model or 'gemini-3-pro'}）...")
+    print(f"\n🤖 初始化 CrewAI（模型: {args.model or '双模型模式'}）...")
     try:
         crew = NovelsCrewAI(model_name=args.model)
         print("   ✅ Crew 已初始化")
