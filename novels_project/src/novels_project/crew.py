@@ -13,6 +13,7 @@ from pathlib import Path
 from .tools.sample_retriever import retrieve_writing_samples
 from .tools.character_voice_checker import check_character_voice, get_character_voice_guide
 from .tools.feedback_tools import retrieve_feedback, get_common_mistakes, record_feedback, record_batch_feedback
+from .tools.iteration_tools import check_iteration_status, should_continue_iteration, get_revision_feedback, record_iteration
 from .logger import ExecutionLogger, MetricsCollector
 
 
@@ -129,20 +130,23 @@ class NovelsCrewAI():
         """剧情撰写员 Agent"""
         return Agent(
             role="剧情撰写员",
-            goal="根据章大纲、人物卡、前章摘要、参考样例，创作本章内容。追求细腻描写（Show, don't tell）、环境渲染、文学性，拒绝平铺直叙。目标字数：3000-5000字",
+            goal="根据章大纲、人物卡、前章摘要、参考样例，创作本章内容。追求细腻描写（Show, don't tell）、环境渲染、文学性，拒绝平铺直叙。目标字数：3000-5000字。支持多轮迭代修改。",
             backstory="""你是文学创意大师，拥有深厚的文字功底和敏锐的美学感知。
 你擅长通过动作、对话、环境细节来表现人物和故事。
 你的文字有节奏、有质感、有余韵，能让读者沉浸其中。
 你熟悉东方玄幻的叙事语言，能驾驭权谋对话和战斗场面。
 你拒绝"然后...接着...最后..."的流水账，每一句话都经过精心雕琢。
 写作完成后，你会使用 check_character_voice 工具检查对话风格一致性。
-你也会检索历史反馈，避免重复犯错。""",
+你也会检索历史反馈，避免重复犯错。
+你支持多轮迭代：根据校对反馈修改内容，直到质量达标。""",
             tools=[
                 retrieve_writing_samples, 
                 check_character_voice, 
                 get_character_voice_guide,
                 retrieve_feedback,
-                get_common_mistakes
+                get_common_mistakes,
+                get_revision_feedback,
+                check_iteration_status,
             ],
             llm=self.llm_qwen,
             verbose=True,
@@ -155,14 +159,15 @@ class NovelsCrewAI():
         """资深校对 Agent"""
         return Agent(
             role="资深校对",
-            goal="检查章节的逻辑一致性、节奏、文笔、人物口吻。优化文笔，指出并修正生硬转折，统一全文风格。最后生成'章节摘要卡'供下章参考",
+            goal="检查章节的逻辑一致性、节奏、文笔、人物口吻。优化文笔，指出并修正生硬转折，统一全文风格。最后生成'章节摘要卡'供下章参考。支持多轮迭代：返回修改意见供撰写员修改。",
             backstory="""你是文学质量把关官，有敏锐的编辑眼光和极高的专业标准。
 你能发现微妙的逻辑漏洞、不和谐的节奏、飘忽的人物设定。
 你深知"魔鬼藏在细节中"，任何不自然的表达都逃不过你的眼睛。
 你不仅会指出问题，更会给出优化后的版本。
 你的最终目标是让每一章都成为精品。
 校对时，你会使用 check_character_voice 工具确保对话风格与人物卡库一致。
-发现的问题会记录到反馈库，供后续创作参考。""",
+发现的问题会记录到反馈库，供后续创作参考。
+你支持多轮迭代：判断是否需要继续迭代，返回修改意见供撰写员修改。""",
             tools=[
                 retrieve_writing_samples, 
                 check_character_voice, 
@@ -170,7 +175,10 @@ class NovelsCrewAI():
                 retrieve_feedback,
                 get_common_mistakes,
                 record_feedback,
-                record_batch_feedback
+                record_batch_feedback,
+                should_continue_iteration,
+                record_iteration,
+                check_iteration_status,
             ],
             llm=self.llm_gemini,
             verbose=True,
@@ -262,6 +270,55 @@ class NovelsCrewAI():
             agents=self.agents,  # 自动包含所有 @agent 装饰的 Agent
             tasks=self.tasks,    # 自动包含所有 @task 装饰的 Task
             process=Process.sequential,  # 串联执行
+            verbose=True,
+        )
+
+    def revision_crew(self) -> Crew:
+        """创建修改用精简 Crew（仅含剧情撰写员和校对）"""
+        # 注意：不使用 @crew 装饰器，因为这是手动创建的辅助 Crew
+        # 缓存 Agent 实例，确保 agents 列表和 tasks 使用同一个实例
+        writer = self.plot_writer()
+        proofreader = self.senior_proofreader()
+
+        revision_write_task = Task(
+            description=self.prompts.get('plot_writer', '修改章节内容') + """
+
+请根据校对反馈修改章节内容。
+
+## 上一轮校对反馈
+
+{revision_feedback}
+
+修改时重点关注：
+1. 校对反馈中指出的高优先级问题
+2. 保持原有风格，不要过度修改
+3. 输出格式与之前相同（YAML 格式）
+
+本轮为迭代修改轮次，也可以调用 get_revision_feedback 获取更多上下文。
+""",
+            expected_output="""YAML 格式的修改后章节，包含：
+- content（修改后的章节内容）
+- revision_notes（修改说明）
+- estimated_word_count（字数统计）""",
+            agent=writer,
+        )
+        
+        revision_proofread_task = Task(
+            description=self.prompts.get('proofreader', '校对修改后的章节') + """
+
+请校对修改后的章节，重点检查之前指出的问题是否已修正。输出必须是 YAML 格式。
+""",
+            expected_output="""YAML 格式的最终版章节和摘要卡，包含：
+- chapter_final（最终版章节内容和校对日志）
+- chapter_summary_card（章节摘要卡，供下章参考）""",
+            agent=proofreader,
+            context=[revision_write_task],
+        )
+        
+        return Crew(
+            agents=[writer, proofreader],
+            tasks=[revision_write_task, revision_proofread_task],
+            process=Process.sequential,
             verbose=True,
         )
 

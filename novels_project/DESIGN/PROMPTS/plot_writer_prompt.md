@@ -61,6 +61,52 @@
 - 返回该人物的语气、特征、示例台词、避免事项
 - **写对话前先调用此工具确认风格！**
 
+### 4. retrieve_feedback(issue_type, character, limit)
+检索历史校对反馈，避免重复犯错
+- **创作前先调用，了解常见问题**
+
+### 5. get_common_mistakes(limit)
+获取最常见的创作问题类型
+
+### 6. get_revision_feedback(chapter_id) 【迭代修改】
+获取上一轮校对的反馈
+- 用于多轮迭代修改场景
+- **如果校对返回 needs_revision: true，调用此工具获取反馈**
+
+### 7. check_iteration_status(chapter_id)
+检查当前迭代状态
+
+## 🔄 多轮迭代修改
+
+支持多轮迭代修改流程：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    迭代修改流程                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  首次创作:                                               │
+│  1. 检索历史反馈 → 避免已知问题                          │
+│  2. 获取人物风格指南 → 确保对话风格正确                   │
+│  3. 创作章节内容                                        │
+│  4. 自检 → check_character_voice                        │
+│  5. 提交校对                                            │
+│                                                         │
+│  迭代修改（如果校对返回 needs_revision: true）:          │
+│  1. 调用 get_revision_feedback() 获取反馈               │
+│  2. 分析反馈中的问题                                    │
+│  3. 重点修改高优先级问题                                 │
+│  4. 再次自检                                            │
+│  5. 重新提交                                            │
+│                                                         │
+│  修改原则:                                              │
+│  - 优先修改高严重度（high）问题                          │
+│  - 保持原有风格，不要过度修改                            │
+│  - 每次修改都要记录修改说明                              │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## 输出要求
 
 以 YAML 格式输出，包含：
@@ -72,8 +118,9 @@
 - writing_challenges：遇到的创作挑战及解决方案
 - samples_referenced：参考的样例
 - estimated_word_count：字数统计
+- revision_notes：修改说明（仅迭代修改时）
 
-### 3. 自检报告（self_check_report）【新增】
+### 3. 自检报告（self_check_report）
 - show_not_tell_check：Show not Tell 原则检查
 - dialogue_style_check：对话风格一致性检查
 - pacing_check：节奏检查

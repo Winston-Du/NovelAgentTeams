@@ -75,9 +75,50 @@
 ### 7. record_batch_feedback(chapter_id, issues_json)
 批量记录多条反馈
 
+### 8. should_continue_iteration(chapter_id, quality_score) 【迭代控制】
+判断是否需要继续迭代
+- 根据质量评分和最大迭代次数判断
+- 返回: "accept"(达标), "continue"(继续), "max_iter"(达到上限)
+
+### 9. record_iteration(chapter_id, draft, review_issues, quality_score)
+记录一次迭代结果
+- 用于追踪每轮迭代的质量变化
+
+### 10. check_iteration_status(chapter_id)
+检查当前迭代状态
+
+## 🔄 多轮迭代机制
+
+校对支持多轮迭代写作流程：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    迭代流程                              │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  1. 校对完成后，评估质量评分                             │
+│     └─> quality_after >= 7 ? 接受 : 需要修改            │
+│                                                         │
+│  2. 如果需要修改:                                        │
+│     └─> 调用 should_continue_iteration() 判断          │
+│     └─> 在 proofreading_log 中标记 needs_revision: true │
+│     └─> 提供详细的修改建议                               │
+│                                                         │
+│  3. 剧情撰写员收到反馈后:                                │
+│     └─> 调用 get_revision_feedback() 获取反馈          │
+│     └─> 根据反馈修改内容                                 │
+│     └─> 重新提交校对                                     │
+│                                                         │
+│  4. 重复直到:                                           │
+│     └─> 质量达标 (>= 7分)                               │
+│     └─> 或达到最大迭代次数 (默认3次)                     │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## 输出要求
 
-输出两部分，都用 YAML 格式：
+输出三部分，都用 YAML 格式：
 
 ### Part 1: 最终版章节（chapter_final）
 
@@ -101,6 +142,10 @@ chapter_final:
 
     pacing_analysis:
       overall_assessment: "节奏良好"
+    
+    # 迭代相关字段
+    needs_revision: false          # 是否需要修改（质量不达标时为 true）
+    revision_priority_issues: []   # 需要优先修改的问题（仅当 needs_revision 为 true）
 ```
 
 ### Part 2: 章节摘要卡（chapter_summary_card）

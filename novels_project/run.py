@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from novels_project.crew import NovelsCrewAI
+from novels_project.iterative_writer import run_iterative_writing
 
 
 def load_chapter_outline(chapter_id: int, outline_file: str = None) -> dict:
@@ -201,6 +202,9 @@ def main():
     parser.add_argument('--outline', type=str, help='大纲文件路径')
     parser.add_argument('--dry-run', action='store_true', help='模拟运行（不调用 LLM）')
     parser.add_argument('--init-vectordb', action='store_true', help='初始化向量库')
+    parser.add_argument('--iterative', action='store_true', help='启用迭代写作模式（多轮写作-校对迭代）')
+    parser.add_argument('--max-iterations', type=int, default=3, help='最大迭代次数（默认: 3）')
+    parser.add_argument('--quality-threshold', type=int, default=7, help='质量阈值 1-10（默认: 7）')
 
     args = parser.parse_args()
 
@@ -257,7 +261,8 @@ def main():
         return
 
     # 初始化 Crew
-    print(f"\n🤖 初始化 CrewAI（模型: {args.model or '双模型模式'}）...")
+    mode_str = "迭代模式" if args.iterative else "标准模式"
+    print(f"\n🤖 初始化 CrewAI（模型: {args.model or '双模型模式'}, 模式: {mode_str}）...")
     try:
         crew = NovelsCrewAI(model_name=args.model)
         print("   ✅ Crew 已初始化")
@@ -266,21 +271,53 @@ def main():
         sys.exit(1)
 
     # 执行创作流程
-    print(f"\n📝 开始执行第 {args.chapter} 章创作流程...")
-    print("   （这可能需要几分钟，请耐心等待）")
-    print()
+    if args.iterative:
+        # 迭代写作模式
+        print(f"\n📝 开始迭代写作模式 - 第 {args.chapter} 章")
+        print(f"   最大迭代次数: {args.max_iterations}")
+        print(f"   质量阈值: {args.quality_threshold}/10")
+        print("   （每轮迭代可能需要几分钟，请耐心等待）")
+        print()
 
-    result = crew.run_chapter(args.chapter, inputs)
+        result = run_iterative_writing(
+            crew=crew,
+            chapter_id=args.chapter,
+            inputs=inputs,
+            max_iterations=args.max_iterations,
+            quality_threshold=args.quality_threshold
+        )
+    else:
+        # 标准模式（单轮执行）
+        print(f"\n📝 开始执行第 {args.chapter} 章创作流程...")
+        print("   （这可能需要几分钟，请耐心等待）")
+        print()
+
+        result = crew.run_chapter(args.chapter, inputs)
 
     # 处理结果
     if result['success']:
         print("\n✅ 章节创作完成！")
 
-        # 保存输出
-        save_output(args.chapter, result)
+        # 保存输出（迭代模式需要适配格式）
+        if args.iterative:
+            save_result = {
+                'success': True,
+                'result': result.get('final_draft', ''),
+            }
+            save_output(args.chapter, save_result)
+        else:
+            save_output(args.chapter, result)
 
-        # 显示指标
-        if 'metrics' in result:
+        # 如果是迭代模式，显示迭代摘要
+        if args.iterative and 'iteration_summary' in result:
+            summary = result['iteration_summary']
+            print(f"\n🔄 迭代摘要:")
+            print(f"   总迭代次数: {summary.get('total_iterations', '?')}")
+            print(f"   最佳质量分数: {summary.get('best_quality_score', '?')}/10")
+            print(f"   最终状态: {summary.get('final_status', '?')}")
+
+        # 显示指标（标准模式）
+        if not args.iterative and 'metrics' in result:
             metrics = result['metrics']
             summary = metrics.get('chapter_summary', {})
             print(f"\n📊 性能指标:")
