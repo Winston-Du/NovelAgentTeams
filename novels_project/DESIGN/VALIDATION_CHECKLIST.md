@@ -134,7 +134,7 @@ check_dependencies:
   2. 陆商曜的 example_dialogues 只有 1 条，需要至少 2 条
 
 修复建议：
-  - 用 qwen3-max 生成缺失的 S 级人物卡
+  - 用 glm-5 生成缺失的 S 级人物卡
   - 为陆商曜补充至少 1 条对话示例
 
 相关文档：DESIGN/GUIDES/CHARACTER_GENERATION.md

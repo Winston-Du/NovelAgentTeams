@@ -41,9 +41,9 @@ class NovelsCrewAI():
             self.llm_gemini = self.llm
             self.llm_qwen = self.llm
         else:
-            # 默认分组模式：总编+校对使用 gemini-3-pro；人物+剧情使用 qwen3-max
+            # 默认分组模式：总编+校对使用 gemini-3-pro；人物+剧情使用 glm-5
             self.llm_gemini = self._create_llm(model_name='gemini-3-pro')
-            self.llm_qwen = self._create_llm(model_name='qwen3-max')
+            self.llm_qwen = self._create_llm(model_name='glm-5')
             # 向后兼容：保留 self.llm（默认指向总编/校对使用的 LLM）
             self.llm = self.llm_gemini
 

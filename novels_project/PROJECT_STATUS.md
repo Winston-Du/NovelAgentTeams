@@ -80,7 +80,7 @@ pip install chromadb langchain python-dotenv pyyaml
 ### 阶段 3：准备数据（你需要完成）
 
 **任务清单**：
-- [ ] 用 qwen3-max 生成人物卡库
+- [ ] 用 glm-5 生成人物卡库
   - [ ] S级 4个人物（陆商曜、薛灵槿、白璃、方清砚）
   - [ ] A级 10个人物（木九公、铁阙、郁衡等）
   - 保存到：`src/novels_project/config/character_base_cards.yaml`

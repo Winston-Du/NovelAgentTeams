@@ -5,12 +5,12 @@ import os
 
 from datetime import datetime
 
-from novels_project.crew import NovelsProject
+from novels_project.crew import NovelsCrewAI as NovelsProject
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 # 支持的模型列表
-SUPPORTED_MODELS = ['gemini-3-pro', 'gpt-5.2','qwen3-max','deepseek-v3.2-exp']
+SUPPORTED_MODELS = ['gemini-3-pro', 'gpt-5.2', 'glm-5', 'qwen3-max', 'deepseek-v3.2-exp']
 
 # This main file is intended to be a way for you to run your
 # crew locally, so refrain from adding unnecessary logic into this file.

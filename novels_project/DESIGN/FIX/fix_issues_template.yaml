@@ -1,0 +1,56 @@
+# ================================================================
+# 章节修正清单
+# ================================================================
+#
+# 用法（只需指定文件名，脚本自动在 DESIGN/FIX/ 目录下查找）:
+#   预览: python scripts/fix_chapter.py --batch fix_issues_template.yaml --dry-run
+#   执行: python scripts/fix_chapter.py --batch fix_issues_template.yaml
+#
+# 每条 issue 必填字段：
+#   - chapter_id:     章节ID（数字）
+#   - original_text:  有问题的原文片段（越准确越好，用于在正文中定位替换）
+#   - problem:        问题描述（告诉 LLM 哪里有问题、期望怎样改）
+#
+# 可选字段：
+#   - issue_type:     问题类型（不填则由 LLM 自动判断）
+#                     常用值: 对话风格偏离 / Tell而非Show / 节奏问题 /
+#                            逻辑漏洞 / 重复结构 / 人物OOC / 内容事实错误
+#   - character:      涉及的人物名（填了会加载该人物的说话风格作为参考）
+#   - severity:       严重程度 high / medium / low（默认 medium）
+#
+# 提示：
+#   - original_text 粘贴原文即可，脚本会先精确匹配，匹配不到会模糊匹配
+#   - 涉及对话修正时，建议填 character 字段，LLM 会参考人物卡库生成符合风格的修正
+#   - issue_type 含 "事实"/"逻辑"/"OOC" 时，脚本会额外更新摘要卡
+# ================================================================
+
+issues:
+  # ---- 示例1：对话风格问题 ----
+  - chapter_id: 16
+    original_text: |
+      "东家，莫要自欺欺人。"木九公咳嗽两声，声音像是从老风箱里拉出来的，带着陈年的沙哑，"这茶便是再放十年，也变不成金子。账上亏空三百贯，那姓周的豺狼又只给了三日限期……依老朽看，不如把这堆烂叶子当柴烧了，还能听个响。"
+    problem: "木九公说话太直接，应该更含蓄委婉。他不会直接否定东家，而是用迂回方式暗示风险。"
+    issue_type: "对话风格偏离"
+    character: "木九公"
+    severity: medium
+
+  # ---- 示例2：Tell not Show ----
+  # - chapter_id: 15
+  #   original_text: "陆商曜感到愤怒，他决定要反击"
+  #   problem: "直接描述内心情感，应该用动作和细节来表现"
+  #   severity: high
+
+  # ---- 示例3：内容事实错误（会同步更新摘要卡）----
+  # - chapter_id: 16
+  #   original_text: "大周商律卷三，第廿七条"
+  #   problem: "前文（第12章）引用的是卷二第十五条，这里应该保持一致，或者明确说明是不同条款"
+  #   issue_type: "内容事实错误"
+  #   severity: high
+
+  # ---- 示例4：节奏问题 ----
+  # - chapter_id: 14
+  #   original_text: |
+  #     （粘贴连续5段纯对话的区域）
+  #   problem: "对话过于密集，缺少动作和环境穿插，节奏单调"
+  #   issue_type: "节奏问题"
+  #   severity: medium

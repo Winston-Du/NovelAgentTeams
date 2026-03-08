@@ -48,7 +48,7 @@ python run.py --chapter 1 --dry-run
 By default, [`NovelsCrewAI`](novels_project/src/novels_project/crew.py:18) uses **two models**:
 
 - Chief Editor + Senior Proofreader: `gemini-3-pro`
-- Character Designer + Plot Writer: `qwen3-max`
+- Character Designer + Plot Writer: `glm-5`
 
 Global override:
 

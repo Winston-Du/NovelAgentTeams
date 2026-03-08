@@ -33,7 +33,7 @@ pip install unstructured  # 用于 Markdown 解析
 
 ### Step 2: 生成最小人物卡库（20-30 分钟）
 
-**方式 A：用 qwen3-max 生成（推荐）**
+**方式 A：用 glm-5 生成（推荐）**
 
 创建一个临时 Python 脚本来生成人物卡：
 
@@ -77,7 +77,7 @@ prompt = """
 
 # 调用 API
 response = client.chat.completions.create(
-    model="qwen3-max",
+    model="glm-5",
     messages=[{"role": "user", "content": prompt}]
 )
 

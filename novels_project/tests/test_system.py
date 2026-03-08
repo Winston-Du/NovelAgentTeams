@@ -190,15 +190,15 @@ class TestCrewAI(unittest.TestCase):
 
     @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key'}, clear=True)
     def test_default_agent_models_split(self):
-        """默认情况下：总编+校对使用 gemini-3-pro；人物+剧情使用 qwen3-max"""
+        """默认情况下：总编+校对使用 gemini-3-pro；人物+剧情使用 glm-5"""
         from novels_project.crew import NovelsCrewAI
 
         crew = NovelsCrewAI()
 
         self.assertEqual(crew.chief_editor().llm.model, 'gemini-3-pro')
         self.assertEqual(crew.senior_proofreader().llm.model, 'gemini-3-pro')
-        self.assertEqual(crew.character_designer().llm.model, 'qwen3-max')
-        self.assertEqual(crew.plot_writer().llm.model, 'qwen3-max')
+        self.assertEqual(crew.character_designer().llm.model, 'glm-5')
+        self.assertEqual(crew.plot_writer().llm.model, 'glm-5')
 
     @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key', 'MODEL_NAME': 'gpt-5.2'}, clear=True)
     def test_model_override_applies_to_all_agents(self):

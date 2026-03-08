@@ -48,7 +48,7 @@ export SILICONFLOW_API_KEY=your_siliconflow_api_key
 - **含义**：默认模型名；也可能作为"全局覆盖模型"。
 - **读取位置**：
   - 在 [`NovelsCrewAI.__init__()`](../src/novels_project/crew.py:21) 中，如果 CLI 传入 `model_name` 或环境变量 `MODEL_NAME` 存在，则 **4 个 Agent 统一用同一模型**。
-  - 否则进入"默认分组双模型模式"：总编+校对用 `gemini-3-pro`，人物+剧情用 `qwen3-max`（见 [`NovelsCrewAI.__init__()`](../src/novels_project/crew.py:21)）。
+  - 否则进入"默认分组双模型模式"：总编+校对用 `gemini-3-pro`，人物+剧情用 `glm-5`（见 [`NovelsCrewAI.__init__()`](../src/novels_project/crew.py:21)）。
 
 ### 2.2 `API_BASE_URL`
 
@@ -77,7 +77,7 @@ export SILICONFLOW_API_KEY=your_siliconflow_api_key
 #### 默认分组双模型（不设置 MODEL_NAME，且 CLI 不传 --model）
 
 - 总编 + 资深校对：`gemini-3-pro`
-- 人物设计师 + 剧情撰写员：`qwen3-max`
+- 人物设计师 + 剧情撰写员：`glm-5`
 
 实现依据：[`NovelsCrewAI.__init__()`](../src/novels_project/crew.py:21)
 
