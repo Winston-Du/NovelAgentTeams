@@ -132,85 +132,91 @@ class TestComponents(unittest.TestCase):
             self.skipTest(f"依赖包未安装: {e}")
 
     def test_sample_retriever_tool(self):
-        """测试样例检索工具"""
+        """测试样例检索工具（现在是普通函数）"""
         try:
             from novels_project.tools.sample_retriever import retrieve_writing_samples
 
             self.assertIsNotNone(retrieve_writing_samples)
-            # crewai.tools.tool 装饰器返回的是 Tool 对象（非可调用函数），应具有 run() 方法
-            self.assertTrue(hasattr(retrieve_writing_samples, 'run'))
-            self.assertTrue(callable(getattr(retrieve_writing_samples, 'run', None)))
+            # 现在是普通可调用函数，不再有 CrewAI 的 run() 方法
+            self.assertTrue(callable(retrieve_writing_samples))
 
         except ImportError as e:
             self.skipTest(f"依赖包未安装: {e}")
 
 
-class TestCrewAI(unittest.TestCase):
-    """测试 CrewAI 集成"""
+class TestRuntime(unittest.TestCase):
+    """测试新架构 Runtime"""
 
     def setUp(self):
         """测试前准备"""
         self.project_root = Path(__file__).parent.parent
 
-    @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key'})
-    def test_crew_initialization(self):
-        """测试 Crew 初始化"""
-        try:
-            from novels_project.crew import NovelsCrewAI
+    def test_agent_definitions(self):
+        """测试 4 个 Agent 定义"""
+        from novels_project.agents import ALL_AGENTS
 
-            crew = NovelsCrewAI(model_name='gemini-3-pro')
-            self.assertIsNotNone(crew)
-            self.assertIsNotNone(crew.llm)
+        self.assertEqual(len(ALL_AGENTS), 4)
 
-            # 检查 Agent 是否正确定义
-            self.assertTrue(hasattr(crew, 'chief_editor'))
-            self.assertTrue(hasattr(crew, 'character_designer'))
-            self.assertTrue(hasattr(crew, 'plot_writer'))
-            self.assertTrue(hasattr(crew, 'senior_proofreader'))
+        agent_names = [a.name for a in ALL_AGENTS]
+        self.assertIn('chief_editor', agent_names)
+        self.assertIn('character_designer', agent_names)
+        self.assertIn('plot_writer', agent_names)
+        self.assertIn('proofreader', agent_names)
 
-        except Exception as e:
-            self.skipTest(f"Crew 初始化失败: {e}")
+    def test_agent_models(self):
+        """测试 Agent 模型配置"""
+        from novels_project.agents import ALL_AGENTS
 
-    @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key'})
-    def test_crew_tasks_defined(self):
-        """测试 Task 是否正确定义"""
-        try:
-            from novels_project.crew import NovelsCrewAI
+        for agent in ALL_AGENTS:
+            self.assertIsNotNone(agent.model)
+            if agent.name in ['chief_editor', 'proofreader']:
+                self.assertEqual(agent.model, 'gemini-3-pro')
+            else:
+                self.assertEqual(agent.model, 'glm-5')
 
-            crew = NovelsCrewAI(model_name='gemini-3-pro')
+    def test_tool_registry(self):
+        """测试工具注册表"""
+        from novels_project.tool_spec import build_builtin_tool_registry
 
-            # 检查 Task 是否正确定义
-            self.assertTrue(hasattr(crew, 'create_chapter_outline_task'))
-            self.assertTrue(hasattr(crew, 'design_character_states_task'))
-            self.assertTrue(hasattr(crew, 'write_chapter_draft_task'))
-            self.assertTrue(hasattr(crew, 'proofread_and_summarize_task'))
+        registry = build_builtin_tool_registry()
+        specs = registry.all_specs()
 
-        except Exception as e:
-            self.skipTest(f"Task 检查失败: {e}")
+        self.assertGreater(len(specs), 10)
 
-    @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key'}, clear=True)
-    def test_default_agent_models_split(self):
-        """默认情况下：总编+校对使用 gemini-3-pro；人物+剧情使用 glm-5"""
-        from novels_project.crew import NovelsCrewAI
+        # 检查关键工具存在
+        tool_names = [s.name for s in specs]
+        self.assertIn('retrieve_writing_samples', tool_names)
+        self.assertIn('check_character_voice', tool_names)
+        self.assertIn('update_character_card', tool_names)
+        self.assertIn('fix_chapter_issue', tool_names)
 
-        crew = NovelsCrewAI()
+    def test_session_model(self):
+        """测试 Session 数据模型"""
+        from novels_project.session import Session, ConversationMessage
 
-        self.assertEqual(crew.chief_editor().llm.model, 'gemini-3-pro')
-        self.assertEqual(crew.senior_proofreader().llm.model, 'gemini-3-pro')
-        self.assertEqual(crew.character_designer().llm.model, 'glm-5')
-        self.assertEqual(crew.plot_writer().llm.model, 'glm-5')
+        session = Session()
+        session.messages.append(ConversationMessage.user_text('hello'))
 
-    @patch.dict(os.environ, {'COMPANY_API_KEY': 'test:key', 'MODEL_NAME': 'gpt-5.2'}, clear=True)
-    def test_model_override_applies_to_all_agents(self):
-        """全局覆盖：设置 MODEL_NAME 或传入 model_name 后，4 个 Agent 统一使用同一模型"""
-        from novels_project.crew import NovelsCrewAI
+        self.assertEqual(session.message_count(), 1)
 
-        crew = NovelsCrewAI()
+        # 测试序列化
+        json_str = session.to_json()
+        restored = Session.from_json(json_str)
+        self.assertEqual(restored.message_count(), 1)
 
-        self.assertEqual(crew.chief_editor().llm.model, 'gpt-5.2')
-        self.assertEqual(crew.senior_proofreader().llm.model, 'gpt-5.2')
-        self.assertEqual(crew.character_designer().llm.model, 'gpt-5.2')
-        self.assertEqual(crew.plot_writer().llm.model, 'gpt-5.2')
+    def test_system_prompt_builder(self):
+        """测试系统提示构建"""
+        from novels_project.system_prompt import (
+            build_main_agent_system_prompt,
+            build_sub_agent_system_prompt,
+        )
+
+        main_prompt = build_main_agent_system_prompt()
+        self.assertGreater(len(main_prompt), 100)
+
+        for agent_name in ['chief_editor', 'character_designer', 'plot_writer', 'proofreader']:
+            prompt = build_sub_agent_system_prompt(agent_name)
+            self.assertGreater(len(prompt), 100)
 
 
 class TestEndToEnd(unittest.TestCase):
@@ -219,21 +225,12 @@ class TestEndToEnd(unittest.TestCase):
     @unittest.skip("需要真实 API，手动运行")
     def test_chapter_1_creation(self):
         """测试第 1 章创作流程"""
-        from novels_project.crew import NovelsCrewAI
+        from novels_project.cli import _build_runtime
 
-        # 准备输入数据
-        inputs = {
-            "volume_id": "卷一",
-            "chapter_id": 1,
-            "chapter_title": "测试章节",
-            "previous_chapter_summary": None,
-        }
+        runtime, session_id = _build_runtime()
+        summary = runtime.run_turn("创作第1章")
 
-        # 执行
-        crew = NovelsCrewAI()
-        result = crew.run_chapter(1, inputs)
-
-        self.assertTrue(result['success'], "章节创作失败")
+        self.assertGreater(summary.iterations, 0)
 
 
 def run_tests():
@@ -245,7 +242,7 @@ def run_tests():
     # 添加测试类
     suite.addTests(loader.loadTestsFromTestCase(TestInitialization))
     suite.addTests(loader.loadTestsFromTestCase(TestComponents))
-    suite.addTests(loader.loadTestsFromTestCase(TestCrewAI))
+    suite.addTests(loader.loadTestsFromTestCase(TestRuntime))
 
     # 运行测试
     runner = unittest.TextTestRunner(verbosity=2)
@@ -256,7 +253,7 @@ def run_tests():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🧪 CrewAI 小说创作系统 - 自动测试")
+    print("小说创作系统 - 自动测试")
     print("=" * 60)
     print()
 
@@ -265,8 +262,8 @@ if __name__ == "__main__":
     print()
     print("=" * 60)
     if success:
-        print("✅ 所有测试通过！")
+        print("所有测试通过！")
         sys.exit(0)
     else:
-        print("❌ 部分测试失败，请检查错误信息")
+        print("部分测试失败，请检查错误信息")
         sys.exit(1)

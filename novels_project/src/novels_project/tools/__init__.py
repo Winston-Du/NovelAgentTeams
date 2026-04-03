@@ -11,6 +11,11 @@ from .character_card_tools import (
     get_character_card,
     list_all_characters,
 )
+from .chapter_fix_tools import (
+    fix_chapter_issue,
+    get_chapter_content,
+    list_generated_chapters,
+)
 
 __all__ = [
     "retrieve_writing_samples",
@@ -30,4 +35,7 @@ __all__ = [
     "add_character_dialogue_example",
     "get_character_card",
     "list_all_characters",
+    "fix_chapter_issue",
+    "get_chapter_content",
+    "list_generated_chapters",
 ]

@@ -335,4 +335,56 @@ def build_builtin_tool_registry() -> ToolRegistry:
         handler=list_all_characters,
     ))
 
+    # === Chapter Fix Tools ===
+    from .tools.chapter_fix_tools import (
+        fix_chapter_issue,
+        get_chapter_content,
+        list_generated_chapters,
+    )
+
+    registry.register(ToolSpec(
+        name="fix_chapter_issue",
+        description="记录章节问题并提供修正指导。自动记录到反馈库，防止同类错误再次发生。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chapter_id": {"type": "integer", "description": "章节ID"},
+                "issue_description": {"type": "string", "description": "问题描述（用户发现的具体问题）"},
+                "original_text": {"type": "string", "description": "有问题的原文片段（可选）"},
+                "fix_instruction": {"type": "string", "description": "修正指导（用户希望的修改方向）"},
+                "severity": {
+                    "type": "string",
+                    "description": "严重程度",
+                    "enum": ["high", "medium", "low"],
+                    "default": "medium"
+                }
+            },
+            "required": ["chapter_id", "issue_description"]
+        },
+        handler=fix_chapter_issue,
+    ))
+
+    registry.register(ToolSpec(
+        name="get_chapter_content",
+        description="获取已生成的章节内容，用于查看和修改。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chapter_id": {"type": "integer", "description": "章节ID"}
+            },
+            "required": ["chapter_id"]
+        },
+        handler=get_chapter_content,
+    ))
+
+    registry.register(ToolSpec(
+        name="list_generated_chapters",
+        description="列出所有已生成的章节。",
+        input_schema={
+            "type": "object",
+            "properties": {}
+        },
+        handler=list_generated_chapters,
+    ))
+
     return registry
