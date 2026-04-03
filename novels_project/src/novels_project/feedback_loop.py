@@ -155,10 +155,17 @@ class FeedbackStore:
 _feedback_store = None
 
 
-def get_feedback_store() -> FeedbackStore:
-    """获取反馈存储单例"""
+def get_feedback_store(feedback_dir: Optional[str] = None) -> FeedbackStore:
+    """
+    获取反馈存储单例。
+
+    Args:
+        feedback_dir: 反馈目录（可选，默认使用当前项目的 feedback/）
+    """
     global _feedback_store
     if _feedback_store is None:
-        project_root = Path(__file__).parent.parent.parent
-        _feedback_store = FeedbackStore(feedback_dir=str(project_root / "feedback"))
+        if feedback_dir is None:
+            from .project_config import get_feedback_dir
+            feedback_dir = str(get_feedback_dir())
+        _feedback_store = FeedbackStore(feedback_dir=feedback_dir)
     return _feedback_store

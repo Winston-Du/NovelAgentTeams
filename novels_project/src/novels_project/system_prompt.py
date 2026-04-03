@@ -2,9 +2,12 @@
 Layer 5: Orchestrator - System Prompt Builder
 
 Builds system prompts for the main orchestrator agent and sub-agents.
-Sub-agent prompts are loaded from DESIGN/PROMPTS/ markdown files.
+Sub-agent prompts are loaded from DESIGN/PROMPTS/ markdown files in current project.
 """
 from pathlib import Path
+from typing import Optional
+
+from .project_config import get_prompts_dir, get_character_cards_path
 
 
 def build_main_agent_system_prompt() -> str:
@@ -13,8 +16,13 @@ def build_main_agent_system_prompt() -> str:
 
     The main agent coordinates 4 sub-agents to produce novel chapters.
     It does NOT write content itself — it delegates to specialized agents.
+
+    World info is loaded from the current project's character cards.
     """
-    return """你是一个小说创作项目的总协调人（Orchestrator Agent）。你管理一个由4个专业子Agent组成的创作团队：
+    # Try to load world info from character cards
+    world_info = _load_world_info()
+
+    return f"""你是一个小说创作项目的总协调人（Orchestrator Agent）。你管理一个由4个专业子Agent组成的创作团队：
 
 ## 你的团队
 
@@ -49,13 +57,48 @@ def build_main_agent_system_prompt() -> str:
 
 你也可以回答用户关于小说创作的问题，讨论剧情设计，提供写作建议。不是每条消息都需要调用子Agent。当用户只是在聊天或提问时，直接回答即可。
 
-## 世界观
-
-- 故事世界：大周朝，商业繁荣但帮派横行
-- 主角：陆商曜（落魄商族庶子，掌握契约古印）
-- 核心法则：《大周商律》是法律体系，契约古印是主角金手指
-- 类型：权谋经营流东方玄幻
+{world_info}
 """
+
+
+def _load_world_info() -> str:
+    """Load world info from character cards metadata."""
+    try:
+        import yaml
+
+        cards_path = get_character_cards_path()
+        if not cards_path.exists():
+            return "## 世界观\n（未设置，请在人物卡库中配置 metadata.story_world）"
+
+        with open(cards_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        metadata = data.get("metadata", {})
+
+        parts = ["## 世界观"]
+
+        if "story_world" in metadata:
+            parts.append(f"- 故事世界：{metadata['story_world']}")
+        if "protagonist" in metadata:
+            parts.append(f"- 主角：{metadata['protagonist']}")
+
+        # Try to get protagonist identity from s_tier characters
+        s_tier = data.get("s_tier", {})
+        characters = s_tier.get("characters", {})
+        protagonist = metadata.get("protagonist", "")
+        if protagonist in characters:
+            char = characters[protagonist]
+            identity = char.get("identity", "")
+            if identity:
+                parts.append(f"- 主角身份：{identity}")
+
+        if len(parts) == 1:
+            return "## 世界观\n（未设置，请在人物卡库中配置）"
+
+        return "\n".join(parts)
+
+    except Exception:
+        return "## 世界观\n（加载失败）"
 
 
 def build_sub_agent_system_prompt(agent_name: str) -> str:
@@ -64,7 +107,8 @@ def build_sub_agent_system_prompt(agent_name: str) -> str:
 
     Falls back to a default prompt if the file doesn't exist.
     """
-    project_root = Path(__file__).parent.parent.parent
+    prompts_dir = get_prompts_dir()
+
     prompt_files = {
         "chief_editor": "chief_editor_prompt.md",
         "character_designer": "character_designer_prompt.md",
@@ -73,15 +117,12 @@ def build_sub_agent_system_prompt(agent_name: str) -> str:
     }
 
     filename = prompt_files.get(agent_name)
-    if not filename:
-        return f"You are a {agent_name} agent."
-
-    prompt_path = project_root / "DESIGN" / "PROMPTS" / filename
-    if prompt_path.exists():
-        content = prompt_path.read_text(encoding="utf-8")
-        # Prepend agent identity
-        identity = _get_agent_identity(agent_name)
-        return f"{identity}\n\n{content}"
+    if filename:
+        prompt_path = prompts_dir / filename
+        if prompt_path.exists():
+            content = prompt_path.read_text(encoding="utf-8")
+            identity = _get_agent_identity(agent_name)
+            return f"{identity}\n\n{content}"
 
     return _get_agent_identity(agent_name)
 
@@ -92,20 +133,16 @@ def _get_agent_identity(agent_name: str) -> str:
         "chief_editor": """你是一位资深小说编辑（总编），拥有20年经验。
 擅长宏观把控故事节奏、识别爽点、设置悬念。
 你的大纲清晰、可执行、充满张力，能让团队准确理解创作意图。
-你深谙东方玄幻小说的套路，理解"权谋经营流"的核心魅力。
 请根据输入数据生成章大纲。输出必须是纯 YAML 格式。""",
 
         "character_designer": """你是资深的人物塑造专家（人物策划设计师），深谙心理学、群体动力学、戏剧冲突。
 你能让每个角色有血有肉，台词充满个性，行为符合逻辑。
 你理解"Show, don't tell"原则，用行动和对话来表现人物性格。
-你擅长设计人物间的张力，让对话和互动充满戏剧性。
 请根据章大纲和人物基础卡库生成本章人物状态卡。输出必须是纯 YAML 格式。""",
 
         "plot_writer": """你是文学创意大师（剧情撰写员），拥有深厚的文字功底和敏锐的美学感知。
 你擅长通过动作、对话、环境细节来表现人物和故事。
 你的文字有节奏、有质感、有余韵，能让读者沉浸其中。
-你熟悉东方玄幻的叙事语言，能驾驭权谋对话和战斗场面。
-你拒绝"然后...接着...最后..."的流水账，每一句话都经过精心雕琢。
 写作完成后，请使用工具检查对话风格一致性。
 请根据章大纲和人物状态卡创作本章内容。输出必须是 YAML 格式。
 目标字数：3000-5000字。""",
@@ -113,8 +150,6 @@ def _get_agent_identity(agent_name: str) -> str:
         "proofreader": """你是文学质量把关官（资深校对），有敏锐的编辑眼光和极高的专业标准。
 你能发现微妙的逻辑漏洞、不和谐的节奏、飘忽的人物设定。
 你深知"魔鬼藏在细节中"，任何不自然的表达都逃不过你的眼睛。
-你不仅会指出问题，更会给出优化后的版本。
-你的最终目标是让每一章都成为精品。
 校对时请使用工具确保对话风格与人物卡库一致。
 发现的问题请记录到反馈库，供后续创作参考。
 请校对章节初稿，优化文笔，并生成章节摘要卡。输出必须是 YAML 格式。""",

@@ -3,6 +3,9 @@ Layer 5: Orchestrator - CLI / REPL
 
 Interactive conversation interface and CLI entry point.
 Supports both REPL mode and single-shot command mode.
+
+All paths are based on the current working directory (project root).
+Run from different directories to work on different stories.
 """
 import os
 import sys
@@ -11,6 +14,10 @@ import readline  # Enable arrow keys and history in input()
 from pathlib import Path
 from typing import Optional
 
+from .project_config import (
+    set_project_root, get_project_root, get_sessions_dir,
+    ensure_directories, format_project_status, check_project_ready,
+)
 from .api_client import OpenAICompatibleClient
 from .session import Session
 from .session_store import SessionStore, generate_session_id
@@ -98,10 +105,21 @@ def _build_runtime(
 
 def _run_repl(runtime: ConversationRuntime, session_id: str, session_store: SessionStore):
     """Run the interactive REPL loop."""
-    print("=" * 60)
-    print("  novels_project - AI 小说创作系统")
-    print("  输入自然语言与Agent对话，输入 /help 查看命令")
-    print("=" * 60)
+    # Show project status
+    print(format_project_status())
+    print()
+
+    # Check if project is ready
+    is_ready, missing = check_project_ready()
+    if not is_ready:
+        print("需要准备以下文件:")
+        for item in missing:
+            print(f"  - {item}")
+        print()
+        print("创建最小配置: config/character_base_cards.yaml")
+        print()
+
+    print("输入自然语言与Agent对话，输入 /help 查看命令")
     print()
 
     while True:
@@ -149,7 +167,8 @@ def _handle_slash_command(
         print("""
 可用命令:
   /help                 显示帮助
-  /chapter <N>          快速创作第N章（自动加载数据并调用完整流程）
+  /status               显示当前项目状态
+  /chapter <N>          快速创作第N章
   /cost                 显示 Token 使用统计
   /session              显示当前会话信息
   /sessions             列出所有保存的会话
@@ -157,7 +176,14 @@ def _handle_slash_command(
   /compact              手动压缩上下文
   /clear                清空当前对话
   /quit                 退出
+
+项目配置:
+  在当前目录创建 config/character_base_cards.yaml 即可开始新故事
+  运行: cd /path/to/your/story && python run.py
 """)
+
+    elif cmd_name == "status":
+        print(format_project_status())
 
     elif cmd_name == "chapter":
         if not cmd_args:
@@ -182,6 +208,7 @@ def _handle_slash_command(
 
     elif cmd_name == "session":
         print(f"Session ID: {session_id}")
+        print(f"Project: {get_project_root()}")
         print(f"Messages: {runtime.session.message_count()}")
         print(f"Estimated tokens: {runtime.session.total_estimated_tokens():,}")
 
@@ -241,11 +268,22 @@ def main():
 
     args = parser.parse_args()
 
+    # Set project root to current working directory
+    set_project_root()
+
+    # Ensure directories exist
+    ensure_directories()
+
     # Vector DB initialization mode
     if args.init_vectordb:
         print("初始化向量库...")
         from .retrieval_engine import get_retrieval_engine
-        engine = get_retrieval_engine()
+        from .project_config import get_samples_dir, get_vector_db_dir
+
+        engine = get_retrieval_engine(
+            sample_dir=str(get_samples_dir()),
+            persist_dir=str(get_vector_db_dir()),
+        )
         engine._ensure_initialized()
         if engine.vectorstore:
             print("向量库初始化完成")
@@ -253,10 +291,11 @@ def main():
             print("向量库初始化失败，请检查样例目录和 API 配置")
         return
 
-    # Build runtime
-    session = None
-    session_store = SessionStore(Path("sessions"))
+    # Build session store with project-specific path
+    session_store = SessionStore(get_sessions_dir())
 
+    # Load session if resuming
+    session = None
     if args.resume:
         session = session_store.load(args.resume)
         if session is None:

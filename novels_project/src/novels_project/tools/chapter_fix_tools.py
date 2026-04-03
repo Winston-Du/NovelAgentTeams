@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
+from ..project_config import get_chapters_dir, get_output_dir
+
 
 def fix_chapter_issue(
     chapter_id: int,
@@ -13,7 +15,7 @@ def fix_chapter_issue(
     original_text: str = "",
     fix_instruction: str = "",
     severity: str = "medium",
-    output_dir: str = "output",
+    output_dir: Optional[str] = None,
 ) -> str:
     """
     记录章节问题并提供修正指导。此工具用于：
@@ -26,6 +28,7 @@ def fix_chapter_issue(
         original_text: 有问题的原文片段（可选，帮助定位）
         fix_instruction: 修正指导（用户希望的修改方向）
         severity: 严重程度 (high/medium/low)
+        output_dir: 输出目录（可选，默认使用当前项目目录）
 
     Returns:
         包含反馈ID和修正指导的信息
@@ -77,18 +80,21 @@ def fix_chapter_issue(
     return guidance
 
 
-def get_chapter_content(chapter_id: int, output_dir: str = "output") -> str:
+def get_chapter_content(chapter_id: int, output_dir: Optional[str] = None) -> str:
     """
     获取已生成的章节内容，用于查看和修改。
 
     Args:
         chapter_id: 章节ID
-        output_dir: 输出目录
+        output_dir: 输出目录（可选）
 
     Returns:
         章节内容
     """
-    chapter_file = Path(output_dir) / "chapters" / f"chapter_{chapter_id}_final.md"
+    if output_dir is None:
+        chapter_file = get_chapters_dir() / f"chapter_{chapter_id}_final.md"
+    else:
+        chapter_file = Path(output_dir) / "chapters" / f"chapter_{chapter_id}_final.md"
 
     if not chapter_file.exists():
         return f"第{chapter_id}章尚未生成。请先生成章节。"
@@ -99,17 +105,20 @@ def get_chapter_content(chapter_id: int, output_dir: str = "output") -> str:
     return f"## 第{chapter_id}章内容\n\n{content}"
 
 
-def list_generated_chapters(output_dir: str = "output") -> str:
+def list_generated_chapters(output_dir: Optional[str] = None) -> str:
     """
     列出所有已生成的章节。
 
     Args:
-        output_dir: 输出目录
+        output_dir: 输出目录（可选）
 
     Returns:
         已生成章节列表
     """
-    chapters_dir = Path(output_dir) / "chapters"
+    if output_dir is None:
+        chapters_dir = get_chapters_dir()
+    else:
+        chapters_dir = Path(output_dir) / "chapters"
 
     if not chapters_dir.exists():
         return "尚未生成任何章节。"

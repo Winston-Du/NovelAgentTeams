@@ -5,12 +5,18 @@ import yaml
 from pathlib import Path
 from typing import Any, Optional
 
+from ..project_config import get_character_cards_path
 
-def _load_character_cards(config_path: str) -> tuple[dict, Path]:
+
+def _load_character_cards(config_path: Optional[str] = None) -> tuple[dict, Path]:
     """Load character cards from YAML file."""
-    path = Path(config_path)
+    if config_path is None:
+        path = get_character_cards_path()
+    else:
+        path = Path(config_path)
+
     if not path.exists():
-        raise FileNotFoundError(f"人物卡文件不存在: {config_path}")
+        raise FileNotFoundError(f"人物卡文件不存在: {path}")
 
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
@@ -56,7 +62,7 @@ def update_character_card(
         character_name: 人物名称（如：陆商曜、黑商周桓）
         field: 要更新的字段，支持点号嵌套（如：unique_speaking_style.tone）
         value: 新的值
-        config_path: 配置文件路径（可选，默认使用内置路径）
+        config_path: 配置文件路径（可选，默认使用当前项目的配置）
 
     Returns:
         操作结果信息
@@ -65,10 +71,6 @@ def update_character_card(
         update_character_card("陆商曜", "core_personality", ["腹黑果决", "能屈能伸", "守底线"])
         update_character_card("黑商周桓", "unique_speaking_style.tone", "阴险狡诈")
     """
-    # Default path
-    if config_path is None:
-        config_path = str(Path(__file__).parent.parent / "config" / "character_base_cards.yaml")
-
     try:
         data, path = _load_character_cards(config_path)
         tier, character = _find_character(data, character_name)
@@ -109,9 +111,6 @@ def add_character_dialogue_example(
     Examples:
         add_character_dialogue_example("陆商曜", "三成换一个安稳，贵了。")
     """
-    if config_path is None:
-        config_path = str(Path(__file__).parent.parent / "config" / "character_base_cards.yaml")
-
     try:
         data, path = _load_character_cards(config_path)
         tier, character = _find_character(data, character_name)
@@ -156,9 +155,6 @@ def get_character_card(
     Examples:
         get_character_card("陆商曜")
     """
-    if config_path is None:
-        config_path = str(Path(__file__).parent.parent / "config" / "character_base_cards.yaml")
-
     try:
         data, _ = _load_character_cards(config_path)
         tier, character = _find_character(data, character_name)
@@ -196,9 +192,6 @@ def list_all_characters(config_path: Optional[str] = None) -> str:
     Returns:
         人物列表
     """
-    if config_path is None:
-        config_path = str(Path(__file__).parent.parent / "config" / "character_base_cards.yaml")
-
     try:
         data, _ = _load_character_cards(config_path)
         names = _list_all_characters(data)

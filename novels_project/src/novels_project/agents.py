@@ -242,15 +242,17 @@ def register_agent_tools(registry: ToolRegistry):
 def build_save_chapter_tool() -> ToolSpec:
     """Build the save_chapter utility tool for the main agent."""
     import yaml
-    from pathlib import Path
 
     def save_chapter(chapter_id: int, content: str,
                      summary_yaml: str = "", raw_output: str = "") -> str:
         """Save chapter output files."""
-        output_dir = Path("output")
-        chapters_dir = output_dir / "chapters"
-        summaries_dir = output_dir / "chapter_summaries"
-        raw_dir = output_dir / "raw_outputs"
+        from .project_config import (
+            get_chapters_dir, get_summaries_dir, get_output_dir
+        )
+
+        chapters_dir = get_chapters_dir()
+        summaries_dir = get_summaries_dir()
+        raw_dir = get_output_dir() / "raw_outputs"
 
         chapters_dir.mkdir(parents=True, exist_ok=True)
         summaries_dir.mkdir(parents=True, exist_ok=True)
@@ -300,14 +302,17 @@ def build_save_chapter_tool() -> ToolSpec:
 def build_load_chapter_data_tool() -> ToolSpec:
     """Build a tool to load chapter input data (outline, character cards)."""
     import yaml
-    from pathlib import Path
 
     def load_chapter_data(chapter_id: int) -> str:
         """Load chapter input data including outline and character cards."""
+        from .project_config import (
+            get_character_cards_path, get_summaries_dir
+        )
+
         # Load character cards
-        cards_path = Path("src/novels_project/config/character_base_cards.yaml")
+        cards_path = get_character_cards_path()
         if not cards_path.exists():
-            return f"Error: character cards file not found at {cards_path}"
+            return f"Error: 人物卡文件不存在。\n请创建: {cards_path}\n\n参考格式:\nmetadata:\n  version: '1.0'\n  protagonist: 你的主角名\ns_tier:\n  characters:\n    主角名:\n      name: 主角名\n      role: 主角\n      core_personality: [性格1, 性格2]\n      unique_speaking_style:\n        tone: 语调描述\n        example_dialogues: [示例台词1, 示例台词2]"
 
         with open(cards_path, "r", encoding="utf-8") as f:
             character_cards = yaml.safe_load(f)
@@ -315,27 +320,22 @@ def build_load_chapter_data_tool() -> ToolSpec:
         # Load previous chapter summary if exists
         prev_summary = None
         if chapter_id > 1:
-            prev_path = Path(f"output/chapter_summaries/chapter_{chapter_id - 1}_summary.yaml")
+            prev_path = get_summaries_dir() / f"chapter_{chapter_id - 1}_summary.yaml"
             if prev_path.exists():
                 with open(prev_path, "r", encoding="utf-8") as f:
                     prev_summary = f.read()
 
+        # Extract world info from character cards metadata
+        metadata = character_cards.get("metadata", {})
+        story_world = metadata.get("story_world", "未设定")
+        protagonist = metadata.get("protagonist", "未设定")
+
         # Build chapter data
         data = {
-            "volume_id": "卷一",
-            "volume_target": "立信立威，初谋关税",
             "chapter_id": chapter_id,
             "chapter_title": f"第{chapter_id}章",
-            "chapter_position": "卷一" if chapter_id <= 10 else "卷二",
-            "story_arc_label": "铺垫" if chapter_id <= 3 else "发展",
-            "pace_label": "快" if chapter_id <= 3 else "中",
-            "planned_climax": ["打脸", "经营", "立威"],
-            "story_world": {
-                "setting": "大周朝，商业繁荣但帮派横行",
-                "protagonist": "陆商曜",
-                "protagonist_identity": "落魄商族庶子，掌握契约古印",
-                "key_rules": ["《大周商律》是法律体系", "契约古印是主角金手指"]
-            },
+            "story_world": story_world,
+            "protagonist": protagonist,
         }
 
         result = f"## 章节 {chapter_id} 输入数据\n\n"

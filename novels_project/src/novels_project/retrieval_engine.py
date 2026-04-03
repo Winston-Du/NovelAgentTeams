@@ -283,9 +283,32 @@ class SampleRetrievalEngine:
 # 全局实例
 _global_engine = None
 
-def get_retrieval_engine() -> SampleRetrievalEngine:
-    """获取全局检索引擎实例"""
+def get_retrieval_engine(
+    sample_dir: Optional[str] = None,
+    persist_dir: Optional[str] = None,
+    embedding_model: str = 'bge-large-zh'
+) -> SampleRetrievalEngine:
+    """
+    获取检索引擎实例。
+
+    Args:
+        sample_dir: 样例目录（可选，默认使用当前项目的 samples/）
+        persist_dir: 向量库目录（可选，默认使用当前项目的 vector_db/）
+        embedding_model: Embedding 模型名称
+    """
     global _global_engine
+
+    from .project_config import get_samples_dir, get_vector_db_dir
+
+    if sample_dir is None:
+        sample_dir = str(get_samples_dir())
+    if persist_dir is None:
+        persist_dir = str(get_vector_db_dir() / "chroma_data")
+
     if _global_engine is None:
-        _global_engine = SampleRetrievalEngine()
+        _global_engine = SampleRetrievalEngine(
+            sample_dir=sample_dir,
+            persist_dir=persist_dir,
+            embedding_model=embedding_model,
+        )
     return _global_engine
