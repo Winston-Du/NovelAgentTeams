@@ -275,4 +275,64 @@ def build_builtin_tool_registry() -> ToolRegistry:
         handler=record_iteration,
     ))
 
+    # === Character Card Tools ===
+    from .tools.character_card_tools import (
+        update_character_card,
+        add_character_dialogue_example,
+        get_character_card,
+        list_all_characters,
+    )
+
+    registry.register(ToolSpec(
+        name="update_character_card",
+        description="更新人物卡的指定字段。支持嵌套字段（如 unique_speaking_style.tone）。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "character_name": {"type": "string", "description": "人物名称，如：陆商曜、黑商周桓"},
+                "field": {"type": "string", "description": "要更新的字段，支持点号嵌套，如：unique_speaking_style.tone"},
+                "value": {"type": "string", "description": "新的值（JSON格式）"}
+            },
+            "required": ["character_name", "field", "value"]
+        },
+        handler=update_character_card,
+    ))
+
+    registry.register(ToolSpec(
+        name="add_character_dialogue_example",
+        description="为人物添加新的对话示例。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "character_name": {"type": "string", "description": "人物名称"},
+                "dialogue": {"type": "string", "description": "新的对话示例"}
+            },
+            "required": ["character_name", "dialogue"]
+        },
+        handler=add_character_dialogue_example,
+    ))
+
+    registry.register(ToolSpec(
+        name="get_character_card",
+        description="获取人物的完整设定卡。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "character_name": {"type": "string", "description": "人物名称"}
+            },
+            "required": ["character_name"]
+        },
+        handler=get_character_card,
+    ))
+
+    registry.register(ToolSpec(
+        name="list_all_characters",
+        description="列出所有可用的人物。",
+        input_schema={
+            "type": "object",
+            "properties": {}
+        },
+        handler=list_all_characters,
+    ))
+
     return registry
