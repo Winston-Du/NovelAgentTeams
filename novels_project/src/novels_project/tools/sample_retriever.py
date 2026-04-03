@@ -1,7 +1,6 @@
 """
-样例检索工具 - 供 CrewAI Agent 使用
+样例检索工具
 """
-from crewai.tools import tool
 from typing import Optional
 
 # 延迟导入以避免循环依赖
@@ -15,7 +14,6 @@ def get_engine():
     return _engine
 
 
-@tool
 def retrieve_writing_samples(query: str,
                             chapter_type: Optional[str] = None,
                             num_samples: int = 3) -> str:

@@ -27,7 +27,7 @@ class DesignValidator:
     def validate_all(self) -> bool:
         """执行所有验证检查"""
         print("=" * 60)
-        print("🔍 CrewAI 小说创作系统 - 初始化检查")
+        print("  小说创作系统 - 初始化检查")
         print("=" * 60)
         print()
 
@@ -205,7 +205,7 @@ def main():
 
     if success:
         print()
-        print("🚀 可以开始执行：python run.py --chapter 1")
+        print("可以开始执行：python run.py --chapter 1 或 python run.py (REPL模式)")
         sys.exit(0)
     else:
         print()

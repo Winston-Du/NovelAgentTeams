@@ -1,7 +1,6 @@
 """
 对话风格校验工具 - 检查对话是否符合人物卡库设定
 """
-from crewai.tools import tool
 from typing import List, Dict, Any, Optional
 import yaml
 import re
@@ -282,7 +281,6 @@ def _reveals_ability(text: str) -> bool:
     return any(p in text for p in reveal_patterns)
 
 
-@tool
 def check_character_voice(content: str, focus_characters: Optional[str] = None) -> str:
     """
     检查章节内容中的人物对话是否符合人物卡库设定
@@ -377,7 +375,6 @@ def check_character_voice(content: str, focus_characters: Optional[str] = None) 
         return f"❌ 对话风格检查失败: {str(e)}"
 
 
-@tool
 def get_character_voice_guide(character_name: str) -> str:
     """
     获取指定人物的对话风格指南

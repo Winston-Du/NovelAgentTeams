@@ -1,7 +1,6 @@
 """
-反馈检索工具 - 供 CrewAI Agent 检索历史反馈
+反馈检索工具
 """
-from crewai.tools import tool
 from typing import Optional, List, Dict, Any
 
 # 延迟导入
@@ -16,7 +15,6 @@ def _get_store():
     return _feedback_store
 
 
-@tool
 def retrieve_feedback(issue_type: Optional[str] = None,
                       character: Optional[str] = None,
                       limit: int = 5) -> str:
@@ -71,7 +69,6 @@ def retrieve_feedback(issue_type: Optional[str] = None,
         return f"❌ 反馈检索失败: {str(e)}"
 
 
-@tool
 def get_common_mistakes(limit: int = 5) -> str:
     """
     获取最常见的创作问题类型，用于预防性检查
@@ -107,7 +104,6 @@ def get_common_mistakes(limit: int = 5) -> str:
         return f"❌ 获取统计数据失败: {str(e)}"
 
 
-@tool
 def record_feedback(chapter_id: int,
                     issue_type: str,
                     character: Optional[str],
@@ -154,7 +150,6 @@ def record_feedback(chapter_id: int,
         return f"❌ 记录反馈失败: {str(e)}"
 
 
-@tool
 def record_batch_feedback(chapter_id: int,
                           issues_json: str) -> str:
     """

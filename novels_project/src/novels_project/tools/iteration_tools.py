@@ -1,7 +1,6 @@
 """
-迭代写作工具 - 供 CrewAI Agent 使用
+迭代写作工具
 """
-from crewai.tools import tool
 from typing import Optional
 
 
@@ -11,7 +10,6 @@ def _get_controller():
     return get_iteration_controller()
 
 
-@tool
 def check_iteration_status(chapter_id: int) -> str:
     """
     检查当前章节的迭代状态
@@ -54,7 +52,6 @@ def check_iteration_status(chapter_id: int) -> str:
         return f"❌ 检查状态失败: {str(e)}"
 
 
-@tool
 def should_continue_iteration(chapter_id: int, quality_score: int) -> str:
     """
     判断是否需要继续迭代
@@ -93,7 +90,6 @@ def should_continue_iteration(chapter_id: int, quality_score: int) -> str:
         return f"❌ 判断失败: {str(e)}"
 
 
-@tool
 def get_revision_feedback(chapter_id: int) -> str:
     """
     获取上一轮校对的反馈，用于指导修改
@@ -127,7 +123,6 @@ def get_revision_feedback(chapter_id: int) -> str:
         return f"❌ 获取反馈失败: {str(e)}"
 
 
-@tool
 def record_iteration(chapter_id: int, 
                      draft: str,
                      review_issues: str,
