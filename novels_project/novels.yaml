@@ -1,0 +1,6 @@
+# NovelsProject 项目配置
+# 优先级：环境变量 NOVEL_PROJECT_ROOT > 本配置 > 当前工作目录
+
+# 默认项目根目录（小说内容目录）
+# 用户可以修改此路径，指向自己的小说内容存放位置
+project_root: /Users/Winston/Documents/WorkSpace/novel_xuanhuan_output

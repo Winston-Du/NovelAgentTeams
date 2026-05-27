@@ -37,7 +37,7 @@ pip install -e .
 
 ```bash
 # LLM API 配置
-export COMPANY_API_KEY="your_api_key_here"
+export API_KEY="your_api_key_here"
 export API_BASE_URL="http://ai-service.tal.com/openai-compatible/v1"  # 可选，有默认值
 export MODEL_NAME="gemini-3-pro"  # 可选，默认 gemini-3-pro
 

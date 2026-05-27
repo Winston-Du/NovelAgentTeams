@@ -1,21 +1,80 @@
 """
 项目配置 - 管理当前故事项目的路径
 
-所有路径基于 PROJECT_ROOT（默认为当前工作目录）。
+所有路径基于 PROJECT_ROOT。
+优先级：
+1. 代码中显式调用 set_project_root()
+2. 环境变量 NOVEL_PROJECT_ROOT
+3. 项目配置文件 novels_project/novels.yaml（随项目分发）
+4. 当前工作目录（默认）
+
 用户可以在不同故事目录下运行系统，每个故事有独立的配置和输出。
 """
 from pathlib import Path
 from typing import Optional
+import os
+import yaml
 
-# 全局项目根目录（默认为当前工作目录）
+# 全局项目根目录
 _PROJECT_ROOT: Optional[Path] = None
+
+# 项目配置文件路径（相对于 src/novels_project/ 的上一级）
+_PROJECT_CONFIG_NAME = "novels.yaml"
+
+
+def _get_package_root() -> Path:
+    """获取 novels_project 包所在的目录。"""
+    # src/novels_project/project_config.py -> novels_project/
+    return Path(__file__).parent.parent.parent
+
+
+def _load_project_config() -> dict:
+    """加载项目配置文件。"""
+    config_path = _get_package_root() / _PROJECT_CONFIG_NAME
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _get_default_project_root() -> Path:
+    """
+    获取默认项目根目录。
+
+    优先级：
+    1. 环境变量 NOVEL_PROJECT_ROOT
+    2. 项目配置文件 novels_project/novels.yaml
+    3. 当前工作目录
+    """
+    # 1. 环境变量
+    env_root = os.getenv('NOVEL_PROJECT_ROOT')
+    if env_root:
+        path = Path(env_root).expanduser().resolve()
+        if path.exists():
+            return path
+        print(f"[警告] 环境变量 NOVEL_PROJECT_ROOT 指向的目录不存在: {path}")
+
+    # 2. 项目配置文件
+    config = _load_project_config()
+    config_root = config.get('project_root')
+    if config_root:
+        path = Path(config_root).expanduser().resolve()
+        if path.exists():
+            return path
+        print(f"[警告] 配置文件 project_root 指向的目录不存在: {path}")
+
+    # 3. 当前工作目录
+    return Path.cwd()
 
 
 def get_project_root() -> Path:
     """获取当前项目根目录。"""
     global _PROJECT_ROOT
     if _PROJECT_ROOT is None:
-        _PROJECT_ROOT = Path.cwd()
+        _PROJECT_ROOT = _get_default_project_root()
     return _PROJECT_ROOT
 
 
@@ -24,10 +83,18 @@ def set_project_root(path: Optional[Path] = None):
     设置项目根目录。
 
     Args:
-        path: 项目路径，None 表示使用当前工作目录
+        path: 项目路径，None 表示使用默认逻辑
     """
     global _PROJECT_ROOT
-    _PROJECT_ROOT = path if path else Path.cwd()
+    if path is None:
+        _PROJECT_ROOT = _get_default_project_root()
+    else:
+        _PROJECT_ROOT = path
+
+
+def get_project_config_path() -> Path:
+    """获取项目配置文件路径。"""
+    return _get_package_root() / _PROJECT_CONFIG_NAME
 
 
 def get_config_dir() -> Path:

@@ -5,3 +5,20 @@ __pycache__/
 .env
 *.sqlite3
 vector_db/
+
+# First/ 目录只保留目录结构，不保留内容
+First/*
+!First/.gitkeep
+
+# novels_project/output/ 目录只保留目录结构，不保留内容
+novels_project/output/*
+!novels_project/output/.gitkeep
+
+# 小说相关内容：人物卡等只保留目录结构，不保留内容
+novels_project/src/novels_project/config/character_base_cards.yaml
+novels_project/docs/character_cards.md
+novels_project/feedback/proofreading_feedback.yaml
+novels_project/knowledge/user_preference.txt
+
+# 本地小说内容已迁移到独立目录，忽略子目录（如存在）
+novel_xuanhuan_output/
