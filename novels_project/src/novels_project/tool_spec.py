@@ -387,4 +387,147 @@ def build_builtin_tool_registry() -> ToolRegistry:
         handler=list_generated_chapters,
     ))
 
+    # === Graph Memory Tools ===
+    from .memory.graph_memory_tool import (
+        query_character_network,
+        query_relation_between,
+        search_graph,
+        trace_foreshadowing,
+        get_graph_context,
+        build_knowledge_graph,
+        get_graph_stats,
+    )
+
+    registry.register(ToolSpec(
+        name="query_character_network",
+        description="查询人物的关系网络，包括直接关系和间接关系、相关事件、所属组织、关联暗线等。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "character_name": {
+                    "type": "string",
+                    "description": "要查询的人物名称"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "查询深度 (1-3)",
+                    "default": 2
+                }
+            },
+            "required": ["character_name"]
+        },
+        handler=query_character_network,
+    ))
+
+    registry.register(ToolSpec(
+        name="query_relation_between",
+        description="查询两个实体之间是否存在关联关系，支持查找直接关系和间接关联路径。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "源实体名称"
+                },
+                "target": {
+                    "type": "string",
+                    "description": "目标实体名称"
+                }
+            },
+            "required": ["source", "target"]
+        },
+        handler=query_relation_between,
+    ))
+
+    registry.register(ToolSpec(
+        name="search_graph",
+        description="在知识图谱中搜索实体，支持按名称或类型查找人物、事件、地点、概念等。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string",
+                    "description": "搜索关键词"
+                },
+                "entity_type": {
+                    "type": "string",
+                    "description": "实体类型过滤: all/character/event/location/organization/concept",
+                    "default": "all"
+                }
+            },
+            "required": ["keyword"]
+        },
+        handler=search_graph,
+    ))
+
+    registry.register(ToolSpec(
+        name="trace_foreshadowing",
+        description="追踪暗线或伏笔的关联脉络，查看哪些事件被预示、哪些概念引用了它、关联人物等信息。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "concept_name": {
+                    "type": "string",
+                    "description": "概念/伏笔名称，如：神秘玉简、陆家隐秘"
+                }
+            },
+            "required": ["concept_name"]
+        },
+        handler=trace_foreshadowing,
+    ))
+
+    registry.register(ToolSpec(
+        name="get_graph_context",
+        description="获取指定实体在图谱中的上下文信息（可用于注入写作 Prompt），支持写作上下文和校对上下文两种模式。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "entity_name": {
+                    "type": "string",
+                    "description": "实体名称"
+                },
+                "context_type": {
+                    "type": "string",
+                    "description": "上下文类型: writing (写作上下文) 或 review (校对上下文)",
+                    "enum": ["writing", "review"],
+                    "default": "writing"
+                }
+            },
+            "required": ["entity_name"]
+        },
+        handler=get_graph_context,
+    ))
+
+    registry.register(ToolSpec(
+        name="build_knowledge_graph",
+        description="构建或重建知识图谱，从人物卡和已生成章节中提取实体和关系。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "character_cards_path": {
+                    "type": "string",
+                    "description": "人物卡 YAML 文件路径（空字符串使用默认）",
+                    "default": ""
+                },
+                "full_sync": {
+                    "type": "boolean",
+                    "description": "是否全量重建（默认增量同步）",
+                    "default": False
+                }
+            },
+            "required": []
+        },
+        handler=build_knowledge_graph,
+    ))
+
+    registry.register(ToolSpec(
+        name="get_graph_stats",
+        description="获取知识图谱的统计信息，包括节点数、关系数、类型分布、核心人物等。",
+        input_schema={
+            "type": "object",
+            "properties": {}
+        },
+        handler=get_graph_stats,
+    ))
+
     return registry

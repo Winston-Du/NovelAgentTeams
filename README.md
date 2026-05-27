@@ -1,6 +1,6 @@
-# NovelsProject - AI 小说创作系统
+# NovelAgentTeams - AI 小说创作系统
 
-基于 Agent Runtime 架构的 AI 小说创作系统，支持交互式对话创作和多项目管理。
+基于 Agent Runtime 架构的 AI 小说创作系统，支持交互式对话创作、多项目管理和基于图谱的智能记忆系统。
 
 ## 特性
 
@@ -10,6 +10,7 @@
 - **全局命令**: 安装后可在任意目录直接运行 `novels` 命令
 - **记忆系统**: 自动记录校对反馈，避免重复错误
 - **向量检索**: 基于样例库的写作风格检索
+- **知识图谱记忆**: 基于 NetworkX 的实体关系图谱，支持伏笔追踪、人物关系查询、智能上下文注入
 
 ## 快速开始
 
@@ -23,7 +24,7 @@
 ```bash
 # 克隆仓库
 git clone https://github.com/only891/novels.git
-cd novels/novels_project
+cd NovelAgentTeams/novels_project
 
 # 安装为全局命令
 pip install -e .
@@ -43,6 +44,9 @@ export MODEL_NAME="gemini-3-pro"  # 可选，默认 gemini-3-pro
 
 # 向量检索 API（可选，用于样例检索）
 export siliconflow_api="your_siliconflow_key"
+
+# 小说内容根目录（可选，优先级最高）
+# export NOVEL_PROJECT_ROOT="/path/to/your/novel/output"
 ```
 
 重新加载配置：
@@ -50,28 +54,56 @@ export siliconflow_api="your_siliconflow_key"
 source ~/.zshrc  # 或 source ~/.bashrc
 ```
 
-### 4. 创建新故事项目
+### 4. 配置项目根目录
+
+在 `novels_project/novels.yaml` 中配置默认小说内容目录：
+
+```yaml
+# NovelsProject 项目配置
+# 优先级：环境变量 NOVEL_PROJECT_ROOT > 本配置 > 当前工作目录
+
+# 默认项目根目录（小说内容目录）
+project_root: /Users/Winston/Documents/WorkSpace/novel_xuanhuan_output
+```
+
+### 5. 创建新故事项目
 
 ```bash
-# 创建故事目录结构
-mkdir -p ~/novels/我的故事/{config,DESIGN/PROMPTS,samples,output}
+# 创建故事目录结构（推荐）
+mkdir -p ~/novels/我的故事/{config,DESIGN/PROMPTS,samples,output/chapters,graph}
 
 # 创建人物卡（必需）
 cat > ~/novels/我的故事/config/character_base_cards.yaml << 'EOF'
-metadata:
-  world_name: 我的故事世界
-  genre: 玄幻
-
-characters:
-  主角:
-    name: 李明
-    description: 一个普通的少年
-    personality: 坚韧、善良
-    background: 出身贫寒，但心怀大志
+s_tier:
+  tier_name: 核心角色
+  characters:
+    主角:
+      role: hero
+      brief: 一个普通的少年，身怀神秘血脉
+      relationships:
+        反派: enemy
+        师父: mentor
+      core_personality:
+        - 坚韧
+        - 善良
+        - 重情义
+    反派:
+      role: villain
+      brief: 邪恶组织的首领
+      relationships:
+        主角: enemy
+      core_personality:
+        - 阴险
+        - 野心勃勃
+    师父:
+      role: mentor
+      brief: 退隐的绝世高手
+      relationships:
+        主角: mentor
 EOF
 
-# 切换到故事目录并启动
-cd ~/novels/我的故事
+# 设置项目根目录并启动
+export NOVEL_PROJECT_ROOT=~/novels/我的故事
 novels
 ```
 
@@ -89,6 +121,7 @@ novels
 novels> 请创作第1章
 novels> 修改第1章的结尾，让主角更果断
 novels> 查看人物卡
+novels> /graph status
 ```
 
 ### 命令行参数
@@ -108,6 +141,12 @@ novels --resume <session_id>
 
 # 初始化向量库
 novels --init-vectordb
+
+# 启动时强制全量重建知识图谱
+novels --build-graph
+
+# 禁用图谱记忆功能
+novels --no-graph
 ```
 
 ### REPL 内置命令
@@ -124,23 +163,108 @@ novels --init-vectordb
 | `/compact` | 手动压缩上下文 |
 | `/clear` | 清空当前对话 |
 | `/quit` | 退出 |
+| `/graph` | 显示图谱状态 |
+| `/graph health` | 显示同步健康报告 |
+| `/graph sync` | 手动触发增量同步 |
+| `/graph network <人物>` | 查询人物关系网络 |
+| `/graph search <关键词>` | 搜索图谱实体 |
+| `/graph foreshadow` | 查看未回收的伏笔 |
+
+## 知识图谱记忆系统
+
+系统内置基于 NetworkX 的知识图谱，自动构建人物关系、事件关联和伏笔追踪。
+
+### 实体类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| character | 人物角色 | 主角、反派、师父 |
+| event | 事件 | 最终决战、神器觉醒 |
+| item | 物品/道具 | 陨星碎片、上古神器 |
+| location | 地点 | 拍卖会场、秘境 |
+| organization | 组织/势力 | 暗影组织、正道联盟 |
+| concept | 概念/设定 | 伏笔、暗线、阴谋 |
+
+### 关系类型
+
+| 类型 | 说明 |
+|------|------|
+| ally | 同盟 |
+| enemy | 敌对 |
+| family | 亲属 |
+| mentor | 师徒 |
+| friend | 朋友 |
+| lover | 恋人 |
+| subordinate | 上下级 |
+| knows | 认识 |
+| participated_in | 参与事件 |
+| caused | 引发/导致 |
+| owns | 拥有 |
+| located_at | 位于 |
+| belongs_to | 属于（组织） |
+| refers_to | 引用/提及 |
+| foreshadows | 伏笔预示 |
+
+### 自动同步配置
+
+系统支持三种同步模式：
+
+- **事件触发**: 章节生成后自动同步
+- **阈值触发**: 达到指定章节数后同步
+- **定时触发**: 定期自动同步
+
+配置参数（默认）：
+- `enabled`: True（启用自动同步）
+- `event_triggered`: True（事件触发）
+- `threshold_chapters`: 1（每章同步）
+- `max_retries`: 3（最大重试次数）
+- `retry_delay_seconds`: 10（重试间隔）
+- `persist_on_sync`: True（同步时持久化）
 
 ## 项目结构
 
-每个故事项目目录结构：
+### 代码结构（NovelAgentTeams）
+
 ```
-我的故事/
+NovelAgentTeams/
+├── novels_project/
+│   ├── src/novels_project/
+│   │   ├── cli.py                    # CLI 入口
+│   │   ├── conversation_runtime.py   # 主 Agent 运行时
+│   │   ├── project_config.py         # 项目配置管理
+│   │   ├── agents/                   # 子 Agent 定义
+│   │   ├── tools/                    # 工具定义
+│   │   ├── memory/                   # 记忆系统
+│   │   │   ├── integrator.py         # 图谱记忆集成器
+│   │   │   ├── graph_store.py        # 图存储
+│   │   │   ├── graph_query.py        # 图查询
+│   │   │   ├── entity_extractor.py   # 实体提取器
+│   │   │   ├── sync_manager.py       # 同步管理器
+│   │   │   └── graph_memory_tool.py  # 图谱工具函数
+│   │   └── api_client.py             # API 客户端
+│   ├── novels.yaml                   # 项目配置文件
+│   ├── pyproject.toml                # 依赖配置
+│   └── tests/                        # 测试用例
+└── README.md
+```
+
+### 小说内容结构（novel_xuanhuan_output）
+
+```
+novel_xuanhuan_output/
 ├── config/
-│   └── character_base_cards.yaml  # 人物卡（必需）
+│   └── character_base_cards.yaml     # 人物卡（必需）
 ├── DESIGN/
-│   └── PROMPTS/                   # 自定义提示模板（可选）
-├── samples/                       # 写作样例（可选）
+│   └── PROMPTS/                      # 自定义提示模板（可选）
+├── samples/                          # 写作样例（可选）
 ├── output/
-│   ├── chapters/                  # 生成的章节
-│   └── chapter_summaries/         # 章节摘要
-├── sessions/                      # 会话记录
-├── feedback/                      # 校对反馈
-└── vector_db/                     # 向量库
+│   ├── chapters/                     # 生成的章节
+│   └── chapter_summaries/            # 章节摘要
+├── sessions/                         # 会话记录
+├── feedback/                         # 校对反馈
+├── vector_db/                        # 向量库
+└── graph/
+    └── knowledge_graph.json          # 知识图谱持久化文件
 ```
 
 ## Agent 架构
@@ -156,14 +280,17 @@ novels --init-vectordb
          ├── character_designer (人物设计师) - glm-5
          ├── plot_writer (剧情撰写员) - glm-5
          └── proofreader (校对) - gemini-3-pro
+         │
+         └── GraphMemoryIntegrator (图谱记忆)
 ```
 
 - **主 Agent**: 负责理解用户意图，协调子 Agent 工作
 - **子 Agent**: 各司其职，完成专业任务
+- **图谱记忆**: 自动构建和查询知识图谱
 
 ## 工具列表
 
-主 Agent 可用的核心工具：
+### 核心工具
 
 | 工具 | 说明 |
 |------|------|
@@ -176,11 +303,30 @@ novels --init-vectordb
 | `save_chapter` | 保存章节到文件 |
 | `load_chapter_data` | 加载章节数据 |
 
+### 图谱记忆工具
+
+| 工具 | 说明 |
+|------|------|
+| `query_character_network` | 查询人物关系网络 |
+| `query_relation_between` | 查询两人之间的关系 |
+| `search_graph` | 搜索图谱中的实体 |
+| `trace_foreshadowing` | 追踪伏笔脉络 |
+| `get_graph_context` | 获取图谱上下文用于提示词 |
+| `build_knowledge_graph` | 手动构建/重建知识图谱 |
+| `get_graph_stats` | 获取图谱统计信息 |
+
 ## 测试
 
 ```bash
-cd novels/novels_project
+cd NovelAgentTeams/novels_project
+
+# 运行所有测试
 PYTHONPATH=src pytest tests/ -v
+
+# 运行特定测试
+PYTHONPATH=src pytest tests/test_graph_memory.py -v
+PYTHONPATH=src pytest tests/test_cli_integration.py -v
+PYTHONPATH=src pytest tests/test_comprehensive_integration.py -v
 ```
 
 ## License
