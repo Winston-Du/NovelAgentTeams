@@ -71,6 +71,13 @@ def _get_default_settings() -> dict:
             "max_backups": 10,
             "backup_dir": str(get_project_root() / "backups"),
         },
+        "vector_retrieval": {
+            "enabled": False,
+            "api_endpoint": "https://api.siliconflow.cn/v1",
+            "api_key": "${siliconflow_api}",
+            "timeout": 60,
+            "embedding_model": "bge-large-zh",
+        },
     }
 
 
@@ -78,12 +85,21 @@ def _get_default_settings() -> dict:
 # Pydantic 模型
 # ============================================================
 
+class VectorRetrievalConfig(BaseModel):
+    enabled: Optional[bool] = None
+    api_endpoint: Optional[str] = None
+    api_key: Optional[str] = None
+    timeout: Optional[int] = None
+    embedding_model: Optional[str] = None
+
+
 class SettingsUpdate(BaseModel):
     theme: Optional[str] = None
     language: Optional[str] = None
     notifications: Optional[dict] = None
     editor: Optional[dict] = None
     backup: Optional[dict] = None
+    vector_retrieval: Optional[VectorRetrievalConfig] = None
 
 
 class BackupInfo(BaseModel):
@@ -457,6 +473,79 @@ async def delete_model_provider(provider_name: str):
     deleted = providers.pop(provider_name)
     _save_model_providers(data)
     return {"status": "deleted", "key": provider_name, "provider": deleted}
+
+
+# ============================================================
+# 向量检索 API 配置
+# ============================================================
+
+class VectorProviderTestRequest(BaseModel):
+    api_endpoint: str
+    api_key: str
+    model_id: str
+    timeout: int = 60
+
+
+@router.post("/vector/test")
+async def test_vector_provider(request: VectorProviderTestRequest):
+    """测试向量检索 API 连接。验证 Embedding 模型是否可用。"""
+    import json
+    import urllib.request
+    import urllib.error
+
+    resolved_key = _resolve_api_key(request.api_key)
+
+    if not request.api_endpoint:
+        raise HTTPException(status_code=400, detail="API 端点不能为空")
+
+    url = request.api_endpoint.rstrip("/") + "/embeddings"
+
+    test_text = "测试文本用于验证 Embedding API"
+    payload = {
+        "model": request.model_id,
+        "input": test_text,
+    }
+
+    req_body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {resolved_key}",
+    }
+
+    http_req = urllib.request.Request(url, data=req_body, headers=headers, method="POST")
+
+    try:
+        timeout_val = request.timeout
+        with urllib.request.urlopen(http_req, timeout=timeout_val) as response:
+            response_body = response.read().decode("utf-8")
+            resp_data = json.loads(response_body)
+
+            if "data" in resp_data and isinstance(resp_data["data"], list) and len(resp_data["data"]) > 0:
+                embedding = resp_data["data"][0]
+                embedding_dim = len(embedding.get("embedding", []))
+                
+                return {
+                    "status": "success",
+                    "http_status": response.status,
+                    "message": f"连接测试成功！Embedding 维度: {embedding_dim}",
+                    "embedding_dimension": embedding_dim,
+                    "model": resp_data.get("model", request.model_id),
+                }
+            else:
+                raise HTTPException(status_code=500, detail="响应格式异常")
+
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8")
+            err_data = json.loads(err_body)
+            err_msg = err_data.get("error", {}).get("message", str(e))
+        except Exception:
+            err_msg = str(e)
+        raise HTTPException(status_code=e.code, detail=f"HTTP {e.code}: {err_msg}")
+    except urllib.error.URLError as e:
+        raise HTTPException(status_code=502, detail=f"连接失败: {str(e.reason)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")
 
 
 @router.post("/models/test")

@@ -90,6 +90,8 @@ export const settingsApi = {
   deleteModelProvider: (name: string) => api.delete(`/settings/models/${name}`),
   testProvider: (data: { base_url: string; api_key: string; model_id?: string; protocol?: string }) =>
     api.post('/settings/models/test', data),
+  testVectorProvider: (data: { api_endpoint: string; api_key: string; model_id: string; timeout?: number }) =>
+    api.post('/settings/vector/test', data),
 };
 
 // ============================================================

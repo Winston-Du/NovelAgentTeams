@@ -93,7 +93,7 @@ export default function MainLayout() {
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}>
           <Typography.Title level={4} style={{ margin: 0, color: token.colorPrimary }}>
-            {collapsed ? 'NA' : 'NovelAgents'}
+            {collapsed ? 'NA' : 'NovelAgentTeams'}
           </Typography.Title>
         </div>
 

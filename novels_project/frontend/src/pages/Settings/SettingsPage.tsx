@@ -69,6 +69,115 @@ export default function SettingsPage() {
   const [showModelAddForm, setShowModelAddForm] = useState(false);
   const [modelAddForm] = Form.useForm();
   const [keyVisible, setKeyVisible] = useState<Record<string, boolean>>({});
+  const [vectorApiKeyVisible, setVectorApiKeyVisible] = useState(false);
+  const [testingVectorConnection, setTestingVectorConnection] = useState(false);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testMessage, setTestMessage] = useState('');
+  const [initializingVectorDb, setInitializingVectorDb] = useState(false);
+  const [initProgress, setInitProgress] = useState(0);
+  const [initStatus, setInitStatus] = useState('');
+  const [showInitProgress, setShowInitProgress] = useState(false);
+  const [modelChanged, setModelChanged] = useState(false);
+
+  const EMBEDDING_MODELS = [
+    { label: 'BGE Large Chinese (推荐)', value: 'bge-large-zh', description: '适合中文语义检索，平衡效果与速度' },
+    { label: 'BGE Large English', value: 'bge-large-en', description: '适合英文语义检索' },
+    { label: 'BGE M3', value: 'bge-m3', description: '多语言支持，大上下文窗口' },
+    { label: 'BGE M3 Pro', value: 'bge-m3-pro', description: '多语言增强版，更好的检索效果' },
+    { label: 'Qwen3 Embedding 4B', value: 'qwen3-embedding-4b', description: '大模型，高精度检索' },
+    { label: 'Qwen3 Embedding 0.6B', value: 'qwen3-embedding-0.6b', description: '轻量模型，快速响应' },
+  ];
+
+  const handleVectorTest = async () => {
+    setTestingVectorConnection(true);
+    setTestResult(null);
+    setTestMessage('');
+    
+    try {
+      const values = form.getFieldsValue(['vector_retrieval']);
+      const vectorConfig = values.vector_retrieval;
+      
+      const res = await settingsApi.testVectorProvider({
+        api_endpoint: vectorConfig.api_endpoint,
+        api_key: vectorConfig.api_key,
+        model_id: vectorConfig.embedding_model,
+        timeout: vectorConfig.timeout || 60,
+      });
+      
+      setTestResult('success');
+      setTestMessage(res.data?.message || '连接测试成功');
+    } catch (err: any) {
+      setTestResult('error');
+      setTestMessage(err.response?.data?.detail || err.message || '连接测试失败');
+    } finally {
+      setTestingVectorConnection(false);
+    }
+  };
+
+  const handleVectorInit = async () => {
+    setInitializingVectorDb(true);
+    setShowInitProgress(true);
+    setInitProgress(0);
+    setInitStatus('正在初始化向量库...');
+    
+    try {
+      const response = await fetch('/api/memory/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!response.ok) {
+        throw new Error('初始化失败');
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应');
+      }
+      
+      const decoder = new TextDecoder('utf-8');
+      let result = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        result += decoder.decode(value, { stream: true });
+        const lines = result.split('\n');
+        
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const data = JSON.parse(line);
+              if (data.progress !== undefined) {
+                setInitProgress(data.progress);
+              }
+              if (data.status) {
+                setInitStatus(data.status);
+              }
+              if (data.completed) {
+                setInitProgress(100);
+                setInitStatus(data.message || '初始化完成');
+              }
+            } catch {
+              // 可能是进度信息
+            }
+          }
+        }
+      }
+      
+      message.success('向量库初始化完成');
+    } catch (err: any) {
+      setInitStatus(`初始化失败: ${err.message}`);
+      message.error('向量库初始化失败');
+    } finally {
+      setInitializingVectorDb(false);
+    }
+  };
+
+  const handleEmbeddingModelChange = () => {
+    setModelChanged(true);
+  };
 
   useEffect(() => {
     loadSettings();
@@ -384,6 +493,206 @@ export default function SettingsPage() {
           <Form.Item name={['notifications', 'enabled']} label="启用通知" valuePropName="checked">
             <Switch />
           </Form.Item>
+          <Form.Item name={['notifications', 'chapter_complete']} label="章节完成通知" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name={['notifications', 'sync_complete']} label="同步完成通知" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name={['notifications', 'backup_reminder']} label="备份提醒" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Card>
+
+        <Card title="向量检索 API 配置" style={{ marginBottom: 16 }}>
+          <Form.Item
+            name={['vector_retrieval', 'enabled']}
+            label="启用向量检索"
+            valuePropName="checked"
+            extra="启用后将使用 SiliconFlow Embedding API 进行样例检索，提升写作参考效果"
+          >
+            <Switch />
+          </Form.Item>
+          
+          <Form.Item
+            name={['vector_retrieval', 'api_endpoint']}
+            label="API 端点 URL"
+            rules={[
+              { required: true, message: '请输入 API 端点 URL' },
+              { type: 'url', message: '请输入有效的 URL' },
+            ]}
+            extra="SiliconFlow API 端点，通常为 https://api.siliconflow.cn/v1"
+          >
+            <Input placeholder="https://api.siliconflow.cn/v1" />
+          </Form.Item>
+          
+          <Form.Item
+            name={['vector_retrieval', 'api_key']}
+            label="API 密钥"
+            extra="支持环境变量引用如 ${siliconflow_api}，建议优先使用环境变量"
+          >
+            <Input.Password
+              placeholder="输入 API Key 或 ${ENV_VAR}"
+              iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+              visibilityToggle={{
+                visible: vectorApiKeyVisible,
+                onVisibleChange: setVectorApiKeyVisible,
+              }}
+            />
+          </Form.Item>
+          
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name={['vector_retrieval', 'embedding_model']}
+                label="模型 ID"
+                rules={[{ required: true, message: '请输入模型 ID' }]}
+                extra="SiliconFlow 支持的 Embedding 模型 ID"
+              >
+                <Input
+                  placeholder="例如: BAAI/bge-large-zh-v1.5"
+                  onChange={handleEmbeddingModelChange}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name={['vector_retrieval', 'timeout']}
+                label="超时时间 (秒)"
+                rules={[{ required: true, message: '请输入超时时间' }]}
+              >
+                <InputNumber min={10} max={300} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 500, color: '#333' }}>推荐模型</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {EMBEDDING_MODELS.map((model) => (
+                <Tag
+                  key={model.value}
+                  color="default"
+                  onClick={() => {
+                    form.setFieldsValue({ vector_retrieval: { ...form.getFieldValue('vector_retrieval'), embedding_model: model.value } });
+                    setModelChanged(true);
+                  }}
+                  style={{ cursor: 'pointer', padding: '4px 12px' }}
+                >
+                  {model.label}
+                </Tag>
+              ))}
+            </div>
+          </div>
+
+          <Space style={{ marginBottom: 16 }}>
+            <Button
+              type="default"
+              icon={<ExperimentOutlined />}
+              onClick={handleVectorTest}
+              loading={testingVectorConnection}
+            >
+              测试连接
+            </Button>
+            <Button
+              type="primary"
+              icon={<UploadOutlined />}
+              onClick={handleVectorInit}
+              loading={initializingVectorDb}
+              disabled={!form.getFieldValue(['vector_retrieval', 'enabled'])}
+            >
+              初始化向量库
+            </Button>
+          </Space>
+
+          {testResult && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 6,
+                marginBottom: 16,
+                background: testResult === 'success' ? '#f6ffed' : '#fff2f0',
+                border: `1px solid ${testResult === 'success' ? '#b7eb8f' : '#ffccc7'}`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {testResult === 'success' ? (
+                  <span role="img" aria-label="success" style={{ marginRight: 8, fontSize: 20 }}>
+                    ✓
+                  </span>
+                ) : (
+                  <span role="img" aria-label="error" style={{ marginRight: 8, fontSize: 20 }}>
+                    ✗
+                  </span>
+                )}
+                <span style={{ color: testResult === 'success' ? '#52c41a' : '#ff4d4f' }}>
+                  {testMessage}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {showInitProgress && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>初始化进度</span>
+              </div>
+              <div style={{ background: '#f0f0f0', borderRadius: 6, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: 24,
+                    background: '#1890ff',
+                    transition: 'width 0.3s ease',
+                    width: `${initProgress}%`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 500 }}>
+                    {initProgress}%
+                  </span>
+                </div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 13, color: '#666' }}>
+                {initStatus}
+              </div>
+            </div>
+          )}
+
+          {modelChanged && form.getFieldValue(['vector_retrieval', 'enabled']) && (
+            <div
+              style={{
+                padding: 12,
+                background: '#fffbe6',
+                borderRadius: 6,
+                marginBottom: 16,
+                border: '1px solid #ffe58f',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                <BulbOutlined style={{ color: '#faad14', marginRight: 8 }} />
+                <span style={{ fontWeight: 500 }}>模型已更改</span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: '#d48806' }}>
+                检测到 Embedding 模型已更改，建议重新初始化向量库以应用新模型。
+              </p>
+            </div>
+          )}
+          
+          <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <BulbOutlined style={{ color: '#faad14', marginRight: 8 }} />
+              <span style={{ fontWeight: 500 }}>使用说明</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 24, fontSize: 13, color: '#666' }}>
+              <li style={{ marginBottom: 4 }}>向量检索用于在写作时检索相似样例，提供写作参考</li>
+              <li style={{ marginBottom: 4 }}>需要在 SiliconFlow 平台注册并获取 API Key</li>
+              <li>推荐使用环境变量配置：export siliconflow_api=your_key</li>
+            </ul>
+          </div>
         </Card>
 
         <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={loading}>

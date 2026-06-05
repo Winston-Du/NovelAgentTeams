@@ -11,12 +11,21 @@
 - **记忆系统**: 自动记录校对反馈，避免重复错误
 - **向量检索**: 基于样例库的写作风格检索
 - **知识图谱记忆**: 基于 NetworkX 的实体关系图谱，支持伏笔追踪、人物关系查询、智能上下文注入
+- **Web 界面**: 提供 React 前端界面，支持可视化管理
+
+## 技术栈
+
+- **后端**: Python 3.10+ / FastAPI / Uvicorn
+- **前端**: React 18+ / TypeScript / Vite / Ant Design
+- **数据库**: SQLite (开发) / PostgreSQL (生产)
+- **测试**: pytest / pytest-cov
 
 ## 快速开始
 
 ### 1. 环境要求
 
 - Python >= 3.10, < 3.14
+- Node.js 20+
 - pip 或 uv
 
 ### 2. 安装
@@ -28,6 +37,9 @@ cd NovelAgentTeams/novels_project
 
 # 安装为全局命令
 pip install -e .
+
+# 安装开发依赖（包含测试工具）
+pip install -e ".[dev]"
 ```
 
 安装完成后，`novels` 命令将在全局可用。
@@ -106,6 +118,24 @@ EOF
 export NOVEL_PROJECT_ROOT=~/novels/我的故事
 novels
 ```
+
+### 6. 启动 Web 界面（可选）
+
+```bash
+# 启动后端服务（开发模式，热重载）
+cd novels_project
+PYTHONPATH=src python -m uvicorn novels_project.server:create_app --host 0.0.0.0 --port 8000 --reload --factory
+
+# 新开终端，启动前端服务
+cd novels_project/frontend
+npm install
+npm run dev
+```
+
+访问地址：
+- 前端界面: http://localhost:5173
+- 后端 API: http://localhost:8000
+- API 文档: http://localhost:8000/docs
 
 ## 使用方法
 
@@ -230,9 +260,15 @@ NovelAgentTeams/
 ├── novels_project/
 │   ├── src/novels_project/
 │   │   ├── cli.py                    # CLI 入口
-│   │   ├── conversation_runtime.py   # 主 Agent 运行时
+│   │   ├── server.py                 # FastAPI 入口
+│   │   ├── agents.py                 # Agent 模块
 │   │   ├── project_config.py         # 项目配置管理
-│   │   ├── agents/                   # 子 Agent 定义
+│   │   ├── api/                      # REST API 路由
+│   │   │   ├── agent.py              # Agent 配置 API
+│   │   │   ├── content.py            # 内容管理 API
+│   │   │   ├── memory.py             # 记忆系统 API
+│   │   │   ├── settings.py           # 设置 API
+│   │   │   └── workspace.py          # 工作空间 API
 │   │   ├── tools/                    # 工具定义
 │   │   ├── memory/                   # 记忆系统
 │   │   │   ├── integrator.py         # 图谱记忆集成器
@@ -242,6 +278,7 @@ NovelAgentTeams/
 │   │   │   ├── sync_manager.py       # 同步管理器
 │   │   │   └── graph_memory_tool.py  # 图谱工具函数
 │   │   └── api_client.py             # API 客户端
+│   ├── frontend/                     # React 前端
 │   ├── novels.yaml                   # 项目配置文件
 │   ├── pyproject.toml                # 依赖配置
 │   └── tests/                        # 测试用例
@@ -272,7 +309,7 @@ novel_xuanhuan_output/
 系统采用 5 层架构：
 
 ```
-用户 <-> CLI/REPL
+用户 <-> CLI/REPL / Web UI
          │
     ConversationRuntime (主 Agent)
          │
@@ -323,10 +360,61 @@ cd NovelAgentTeams/novels_project
 # 运行所有测试
 PYTHONPATH=src pytest tests/ -v
 
-# 运行特定测试
-PYTHONPATH=src pytest tests/test_graph_memory.py -v
-PYTHONPATH=src pytest tests/test_cli_integration.py -v
-PYTHONPATH=src pytest tests/test_comprehensive_integration.py -v
+# 运行单元测试和集成测试
+PYTHONPATH=src pytest tests/unit/ tests/integration/ -v
+
+# 生成覆盖率报告
+PYTHONPATH=src pytest tests/unit/ tests/integration/ --cov=novels_project --cov-report=html
+
+# 查看覆盖率报告
+open coverage_html_report/index.html
+```
+
+## CI/CD 流水线
+
+项目已配置 GitHub Actions CI 流水线，自动执行：
+
+1. **代码质量检查** - Ruff 静态分析
+2. **单元测试** - Python 3.10/3.11/3.12
+3. **覆盖率报告** - 95% 阈值检查
+4. **前端构建** - Vite 构建验证
+5. **安全扫描** - safety + bandit
+
+## API 文档
+
+启动后端后访问：
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+## 常见问题
+
+### 端口被占用
+
+```bash
+# 查找占用端口的进程
+lsof -i :8000  # 后端
+lsof -i :5173  # 前端
+
+# 杀死进程
+kill -9 <PID>
+```
+
+### 依赖安装失败
+
+```bash
+# 更新 pip
+pip install --upgrade pip
+
+# 清理缓存
+pip cache purge
+rm -rf node_modules package-lock.json  # 前端
+```
+
+### 测试失败
+
+```bash
+# 查看详细错误
+PYTHONPATH=src pytest tests/unit/test_example.py -v --tb=long
 ```
 
 ## License
