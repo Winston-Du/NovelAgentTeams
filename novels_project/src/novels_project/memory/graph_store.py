@@ -409,7 +409,10 @@ class GraphStore:
             return False
 
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            content = f.read().strip()
+            if not content:
+                return False
+            data = json.loads(content)
         self._graph = nx.node_link_graph(data)
         return True
 

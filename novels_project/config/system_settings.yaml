@@ -1,0 +1,17 @@
+theme: light
+language: zh
+notifications:
+  enabled: true
+  chapter_complete: true
+  sync_complete: true
+  backup_reminder: true
+editor:
+  font_size: 14
+  line_height: 1.8
+  auto_save: true
+  auto_save_interval: 60
+backup:
+  auto_backup: false
+  backup_interval_hours: 24
+  max_backups: 10
+  backup_dir: backups

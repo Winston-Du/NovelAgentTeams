@@ -72,7 +72,7 @@ class ApiRequest:
 class ApiClient(Protocol):
     def stream(self, request: ApiRequest) -> list[AssistantEvent]:
         """Send a request to the LLM and return collected events."""
-        ...
+        ...  # pragma: no cover
 
 
 # === OpenAI SDK Implementation ===

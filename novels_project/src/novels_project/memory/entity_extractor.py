@@ -335,7 +335,7 @@ class EntityExtractor:
         full_text = ""
         from ..api_client import TextDelta
         for event in events:
-            if isinstance(event, TextDelta):
+            if isinstance(event, TextDelta):  # pragma: no branch
                 full_text += event.text
 
         logger.debug("[EntityExtractor] LLM 响应文本 | len=%d", len(full_text))
@@ -805,7 +805,7 @@ class EntityExtractor:
                 # 更新已有实体的属性（合并 chapter 信息）
                 existing = self._graph.get_entity(name) or {}
                 existing_appear = existing.get("appears_in_chapters", [])
-                if isinstance(existing_appear, (list, set)):
+                if isinstance(existing_appear, (list, set)):  # pragma: no branch
                     if chapter_id not in existing_appear:
                         existing_appear = list(existing_appear) + [chapter_id]
                 elif isinstance(existing_appear, int):

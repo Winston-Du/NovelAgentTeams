@@ -20,7 +20,7 @@ class ToolSpec:
 class ToolExecutor(Protocol):
     def execute(self, tool_name: str, tool_input: str) -> tuple[str, bool]:
         """Execute a tool. Returns (output, is_error)."""
-        ...
+        ...  # pragma: no cover
 
 
 class ToolRegistry:

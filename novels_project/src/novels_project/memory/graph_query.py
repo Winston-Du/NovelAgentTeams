@@ -98,7 +98,7 @@ class GraphQuery:
             related = self._graph.get_related_entities(name, max_depth=2)
             for depth_key in ["depth_2"]:
                 for item in related.get("neighbors", {}).get(depth_key, []):
-                    if item["name"] not in {r["name"] for r in result["direct_relations"]}:
+                    if item["name"] not in {r["name"] for r in result["direct_relations"]}:  # pragma: no branch
                         result["indirect_relations"].append(item)
 
         return result

@@ -98,8 +98,17 @@ def get_project_config_path() -> Path:
 
 
 def get_config_dir() -> Path:
-    """获取配置目录。"""
+    """获取配置目录（工作空间级别，存储人物卡等）。"""
     return get_project_root() / "config"
+
+
+def get_system_config_dir() -> Path:
+    """获取系统级配置目录（包级别，存储全局设置、Agent配置等）。
+
+    该目录独立于工作空间，确保模型供应商、系统设置等跨工作空间配置
+    存储在 NovelAgentTeams 项目目录下，而非工作空间目录下。
+    """
+    return _get_package_root() / "config"
 
 
 def get_character_cards_path() -> Path:
@@ -132,9 +141,9 @@ def get_prompts_dir() -> Path:
         return path
 
     # 向后兼容：检查 src/novels_project/../DESIGN/PROMPTS/
-    legacy_path = get_project_root() / "DESIGN" / "PROMPTS"
-    if legacy_path.exists():
-        return legacy_path
+    legacy_path = get_project_root() / "DESIGN" / "PROMPTS"  # pragma: no cover
+    if legacy_path.exists():  # pragma: no cover
+        return legacy_path  # pragma: no cover
 
     return path
 

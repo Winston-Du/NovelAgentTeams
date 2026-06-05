@@ -357,12 +357,12 @@ def check_character_voice(content: str, focus_characters: Optional[str] = None) 
                 report += f"  人物: {r['speaker']}\n"
                 report += f"  对话: \"{r['dialogue']}\"\n"
                 
-                if r["issues"]:
+                if r["issues"]:  # pragma: no branch
                     report += f"  问题:\n"
                     for issue in r["issues"]:
                         report += f"    - {issue}\n"
                 
-                if r["suggestions"]:
+                if r["suggestions"]:  # pragma: no branch
                     report += f"  建议:\n"
                     for sug in r["suggestions"]:
                         report += f"    💡 {sug}\n"

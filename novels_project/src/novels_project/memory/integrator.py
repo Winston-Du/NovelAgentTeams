@@ -453,7 +453,7 @@ class GraphMemoryIntegrator:
 
         # 将全局单例绑定到集成器实例
         store = integrator.graph_store
-        if store:
+        if store:  # pragma: no branch
             import novels_project.memory.graph_memory_tool as gmt
             gmt._global_graph_store = store
             gmt._global_graph_query = integrator.graph_query

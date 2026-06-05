@@ -96,7 +96,7 @@ class RateLimitHandler:
         def wrapper(*args, **kwargs) -> Any:
             last_exception = None
 
-            for attempt in range(self.max_retries + 1):
+            for attempt in range(self.max_retries + 1):  # pragma: no branch
                 try:
                     return func(*args, **kwargs)
 

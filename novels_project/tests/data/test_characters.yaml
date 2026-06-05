@@ -1,0 +1,90 @@
+# 测试人物卡数据
+
+# S级人物
+s_tier:
+  characters:
+    主角:
+      name: 主角
+      role: 男主角
+      tier: s_tier
+      brief: 故事的核心主角，拥有神秘的身世背景
+      personality: 勇敢、正直、机智
+      background: 从小在偏远山村长大，身上隐藏着不为人知的秘密
+      appearance: 身穿蓝色布衣，腰间佩有祖传玉佩
+      motivation: 寻找失散多年的亲人
+      weakness: 过于信任他人
+
+# A级人物
+a_tier:
+  characters:
+    女主角:
+      name: 女主角
+      role: 女主角
+      tier: a_tier
+      brief: 神秘的女子，拥有强大的灵力
+      personality: 冷静、聪慧、外冷内热
+      background: 来自神秘的隐世家族
+      appearance: 白衣胜雪，手持玉笛
+      motivation: 寻找失落的家族秘宝
+      weakness: 对感情过于执着
+    
+    反派:
+      name: 反派
+      role: 主要反派
+      tier: a_tier
+      brief: 野心勃勃的野心家，企图颠覆整个大陆
+      personality: 冷酷、狡诈、野心勃勃
+      background: 曾经是名门望族的继承人
+      appearance: 黑衣黑发，眼神深邃
+      motivation: 追求力量和权力
+      weakness: 过于自负
+
+# B级人物
+b_tier:
+  characters:
+    师傅:
+      name: 师傅
+      role: 师父
+      tier: b_tier
+      brief: 主角的师父，隐世高人
+      personality: 慈祥、睿智、高深莫测
+      background: 曾经是江湖上的传奇人物
+      appearance: 白发苍苍，仙风道骨
+      motivation: 守护师门传承
+      weakness: 年事已高
+    
+    好友:
+      name: 好友
+      role: 同伴
+      tier: b_tier
+      brief: 主角的挚友，性格开朗
+      personality: 乐观、热情、重情重义
+      background: 来自普通商人家庭
+      appearance: 身着劲装，腰间佩剑
+      motivation: 陪伴主角完成冒险
+      weakness: 有时过于冲动
+
+# C级人物
+c_tier:
+  characters:
+    店主:
+      name: 店主
+      role: 配角
+      tier: c_tier
+      brief: 神秘的酒馆老板
+      personality: 神秘、见多识广
+      background: 似乎知道很多不为人知的秘密
+      appearance: 中年男子，笑容可掬
+      motivation: 经营酒馆，收集情报
+      weakness: 过于好奇
+    
+    守卫:
+      name: 守卫队长
+      role: 配角
+      tier: c_tier
+      brief: 城门守卫队长
+      personality: 正直、尽责
+      background: 退伍军人
+      appearance: 身材魁梧，身披铠甲
+      motivation: 守护城市安全
+      weakness: 过于死板

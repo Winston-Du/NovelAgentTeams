@@ -1,0 +1,28 @@
+chapter_id: 2
+character_status_updates:
+  木九公:
+    status_change: 展现出极高的账房能力，虽病弱但不可小觑。
+  王福:
+    status_change: 下线（被捕入狱）。
+  陆商曜:
+    relationship_updates:
+      与伙计: 建立初步威慑（畏惧>敬重）。
+    status_change: 从'落魄少爷'转变为'狠辣掌柜'（在伙计眼中）。
+foreshadowing_status:
+  buried_foreshadowing:
+  - content: 废弃地契上显示【气运未绝】
+    recovery_plan: 下一章利用地契进行资产运作，解决债务。
+  resolved_foreshadowing: []
+info_for_next_chapter:
+  character_status_snapshot: 陆商曜暂时稳住内部，但面临巨大外部压力；古印能力初显，需探索用法。
+  plot_continuity: 紧接结尾，研究地契，开启搞钱模式。
+open_questions:
+- 那张废弃地契到底指向哪里？为何还有气运？
+- 周桓三天后上门，五千两巨款如何筹措？
+story_progress:
+  forward_momentum: 完成了内部权力的收回，剧情焦点迅速转移到即将到来的外部债务危机。
+  key_events:
+  - 陆商曜回归货栈，铁阙封门，雷霆整顿内部。
+  - 利用《大周商律》反杀贪墨的老掌柜王福，将其送官。
+  - 王福被捕前点破'三天后黑商周桓上门逼债'的危机。
+  - 陆商曜绝境中触碰废弃地契，激活古印功能，发现翻盘希望。
