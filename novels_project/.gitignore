@@ -3,6 +3,7 @@
 .env.*
 config/system_settings.yaml
 config/model_providers.yaml
+config/current_workspace.json
 
 # Python
 __pycache__/
@@ -25,6 +26,7 @@ coverage_html_report/
 
 # Build artifacts
 frontend/dist/
+*.tsbuildinfo
 
 # Editor temp files
 *.bak
