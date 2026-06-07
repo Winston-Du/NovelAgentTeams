@@ -14,11 +14,28 @@ First/*
 novels_project/output/*
 !novels_project/output/.gitkeep
 
-# 小说相关内容：人物卡等只保留目录结构，不保留内容
+# 小说内容相关的私密文件（精确匹配）
 novels_project/src/novels_project/config/character_base_cards.yaml
 novels_project/docs/character_cards.md
-novels_project/feedback/proofreading_feedback.yaml
-novels_project/knowledge/user_preference.txt
+
+# feedback/ 和 knowledge/ 目录级忽略（避免遗漏新增文件）
+novels_project/feedback/
+novels_project/knowledge/
+
+# 图谱同步状态文件（运行时生成）
+**/.graph_sync_state.json
 
 # 本地小说内容已迁移到独立目录，忽略子目录（如存在）
 novel_xuanhuan_output/
+
+# 工作空间目录 - 存储用户小说项目，不应上传到 GitHub
+workspaces/
+
+# 工作空间注册表
+novels_project/workspaces_registry/
+
+# AI 工具本地配置与 IDE 配置
+.kilocode/
+.trae/
+.workbuddy/
+.vscode/

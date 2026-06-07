@@ -1,4 +1,46 @@
+# Environment & secrets
 .env
+.env.*
+config/system_settings.yaml
+config/model_providers.yaml
+
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+
+# Dependencies
+node_modules/
+
+# Cache & coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.json
+coverage_html_report/
+
+# Build artifacts
+frontend/dist/
+
+# Editor temp files
+*.bak
+*.swp
+*~
 .DS_Store
+
+# Project data (runtime generated)
 logs/
+output/
+sessions/
+graph/
+workspaces_registry/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
