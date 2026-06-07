@@ -222,29 +222,41 @@ class GraphMemoryIntegrator:
         """
         将图谱记忆系统附加到 Agent 运行时。
 
-        通过 monkey-patch ConversationRuntime.run_turn() 实现，
-        在每次 turn 结束后自动同步新生成的章节内容。
+        使用 ConversationRuntime 的 hook 系统，在每次 turn 结束后
+        自动同步新生成的章节内容。优先使用 add_turn_hook()，
+        对不支持 hook 的 runtime 降级使用 monkey-patch。
 
         Args:
             runtime: ConversationRuntime 实例
         """
-        # 保存原始方法
+        # 优先使用 hook 系统（新架构）
+        if hasattr(runtime, "add_turn_hook"):
+            runtime.add_turn_hook(self._on_turn_completed)
+            logger.info(
+                "[GraphMemoryIntegrator] 已通过 hook 附加到 ConversationRuntime | type=%s",
+                type(runtime).__name__,
+            )
+            return
+
+        # 降级方案：monkey-patch（兼容旧版 runtime）
         original_run_turn = runtime.run_turn
 
         def patched_run_turn(user_input: str):
             result = original_run_turn(user_input)
-
-            # Turn 结束后检查是否需要同步
             if self._initialized and self._sync_manager:
                 self._check_and_sync()
-
             return result
 
         runtime.run_turn = patched_run_turn
-        logger.info(
-            "[GraphMemoryIntegrator] 已附加到 ConversationRuntime | type=%s",
+        logger.warning(
+            "[GraphMemoryIntegrator] 降级使用 monkey-patch 附加到 ConversationRuntime | type=%s",
             type(runtime).__name__,
         )
+
+    def _on_turn_completed(self, turn_summary: Any) -> None:
+        """Hook callback: invoked after each conversation turn completes."""
+        if self._initialized and self._sync_manager:
+            self._check_and_sync()
 
     def on_chapter_generated(self, chapter_id: int, chapter_text: str, llm_client: Any = None):
         """
@@ -280,6 +292,26 @@ class GraphMemoryIntegrator:
                     "[GraphMemoryIntegrator] 章节回调执行失败 | chapter=%d error=%s",
                     chapter_id, e,
                 )
+
+        # 自动将章节摘要存入向量库（场景5）
+        self._add_chapter_to_vector_db(chapter_id, chapter_text)
+
+    def _add_chapter_to_vector_db(self, chapter_id: int, chapter_text: str):
+        """将章节摘要添加到向量库，支持场景5：根据章节摘要创作新章节"""
+        try:
+            from ..context_injector import get_context_injector
+            injector = get_context_injector()
+            success = injector.add_chapter_to_vector_db(chapter_text, chapter_id)
+            if success:
+                logger.info(
+                    "[GraphMemoryIntegrator] 章节摘要已存入向量库 | chapter=%d",
+                    chapter_id,
+                )
+        except Exception as e:
+            logger.error(
+                "[GraphMemoryIntegrator] 添加章节摘要到向量库失败 | chapter=%d error=%s",
+                chapter_id, e,
+            )
 
     def register_chapter_callback(self, callback: Callable):
         """注册章节生成后的自定义回调。"""

@@ -8,9 +8,13 @@
 4. 输入验证测试
 """
 
+import os
 import pytest
 import requests
 import re
+
+# 可配置的基础URL
+BASE_URL = os.getenv("NOVEL_TEST_BASE_URL", BASE_URL)
 
 
 class TestAPIKeySecurity:

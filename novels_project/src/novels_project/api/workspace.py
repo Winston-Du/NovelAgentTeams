@@ -5,7 +5,11 @@
 """
 from __future__ import annotations
 
+import json
+import logging
+import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +20,8 @@ from ..project_config import (
     get_project_root, set_project_root, get_project_info,
     format_project_status, check_project_ready,
 )
+
+logger = logging.getLogger("novels_project.api.workspace")
 
 router = APIRouter()
 
@@ -39,7 +45,6 @@ def _list_registered_workspaces() -> list[dict]:
     _ensure_registry()
     workspaces = []
     for f in sorted(WORKSPACE_REGISTRY_DIR.glob("*.json")):
-        import json
         try:
             with open(f, "r", encoding="utf-8") as fp:
                 data = json.load(fp)
@@ -51,7 +56,6 @@ def _list_registered_workspaces() -> list[dict]:
 
 def _save_workspace_registry(name: str, path: str):
     """保存工作空间注册信息。"""
-    import json
     _ensure_registry()
     data = {
         "name": name,
@@ -121,49 +125,64 @@ async def list_workspaces():
             is_ready=is_ready,
         ))
 
-    # 如果当前项目不在注册表中，也显示
-    if not any(w["path"] == current_root for w in workspaces):
-        current = Path(current_root)
-        result.append(WorkspaceInfo(
-            name=current.name,
-            path=current_root,
-            is_current=True,
-            chapters_count=len(list((current / "output" / "chapters").glob("chapter_*_final.md")))
-                if (current / "output" / "chapters").exists() else 0,
-            is_ready=(current / "config" / "character_base_cards.yaml").exists(),
-        ))
-
     return result
 
 
 @router.post("/")
 async def create_workspace(data: WorkspaceCreate):
-    """创建新工作空间。"""
-    base = Path(data.base_path) if data.base_path else Path.home() / "novels"
-    base.mkdir(parents=True, exist_ok=True)
+    """创建新工作空间。
 
-    workspace_path = base / data.name
-    if workspace_path.exists():
-        raise HTTPException(status_code=400, detail=f"工作空间 '{data.name}' 已存在")
+    支持两种模式：
+    1. Web 模式（base_path 为空）：自动在 output/ 目录下创建，目录名格式为 {name}_{timestamp}
+    2. CLI 模式（base_path 有值）：在用户指定路径下创建，目录名为 name
+    """
+    try:
+        if data.base_path:
+            # CLI 模式：使用用户指定路径
+            base = Path(data.base_path).expanduser().resolve()
+            base.mkdir(parents=True, exist_ok=True)
+            workspace_path = base / data.name
+            folder_name = data.name
+        else:
+            # Web 模式：固定在 output/ 目录下，自动生成唯一目录名
+            base = get_project_root() / "output"
+            base.mkdir(parents=True, exist_ok=True)
+            
+            # 生成唯一目录名：{name}_{timestamp}
+            # 清理名称中的特殊字符
+            safe_name = re.sub(r'[^\w\u4e00-\u9fff-]', '_', data.name)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            folder_name = f"{safe_name}_{timestamp}"
+            workspace_path = base / folder_name
 
-    # 创建目录结构
-    dirs = [
-        "config",
-        "output/chapters",
-        "output/chapter_summaries",
-        "samples",
-        "sessions",
-        "feedback",
-        "graph",
-        "DESIGN/PROMPTS",
-    ]
-    for d in dirs:
-        (workspace_path / d).mkdir(parents=True, exist_ok=True)
+        # 检测是否为已有工作空间目录
+        if workspace_path.exists():
+            if not workspace_path.is_dir():
+                raise HTTPException(status_code=400, detail=f"路径 '{workspace_path}' 不是目录")
+            status = "registered"
+        else:
+            # 新建：创建完整目录结构
+            dirs = [
+                "config",
+                "output/chapters",
+                "output/chapter_summaries",
+                "samples",
+                "sessions",
+                "feedback",
+                "graph",
+                "DESIGN/PROMPTS",
+            ]
+            for d in dirs:
+                (workspace_path / d).mkdir(parents=True, exist_ok=True)
+            status = "created"
 
-    # 注册
-    _save_workspace_registry(data.name, str(workspace_path.resolve()))
+        # 注册到工作空间列表（使用原始名称，而非文件夹名）
+        _save_workspace_registry(data.name, str(workspace_path.resolve()))
 
-    return {"name": data.name, "path": str(workspace_path.resolve()), "status": "created"}
+        return {"name": data.name, "path": str(workspace_path.resolve()), "status": status}
+    except Exception as e:
+        logger.error("创建工作空间失败: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"创建工作空间失败: {str(e)}")
 
 
 @router.put("/{name}")
@@ -173,7 +192,6 @@ async def rename_workspace(name: str, data: WorkspaceRename):
     if not old_reg.exists():
         raise HTTPException(status_code=404, detail=f"工作空间 '{name}' 不存在")
 
-    import json
     with open(old_reg, "r", encoding="utf-8") as f:
         ws_data = json.load(f)
 
@@ -202,7 +220,6 @@ async def delete_workspace(name: str):
     if not reg_path.exists():
         raise HTTPException(status_code=404, detail=f"工作空间 '{name}' 不存在")
 
-    import json
     with open(reg_path, "r", encoding="utf-8") as f:
         ws_data = json.load(f)
 
@@ -222,7 +239,6 @@ async def switch_workspace(name: str):
     if not reg_path.exists():
         raise HTTPException(status_code=404, detail=f"工作空间 '{name}' 不存在")
 
-    import json
     with open(reg_path, "r", encoding="utf-8") as f:
         ws_data = json.load(f)
 
@@ -248,7 +264,6 @@ async def workspace_status(name: str):
     if not reg_path.exists():
         raise HTTPException(status_code=404, detail=f"工作空间 '{name}' 不存在")
 
-    import json
     with open(reg_path, "r", encoding="utf-8") as f:
         ws_data = json.load(f)
 

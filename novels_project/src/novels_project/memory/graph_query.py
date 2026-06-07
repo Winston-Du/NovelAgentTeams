@@ -293,6 +293,37 @@ class GraphQuery:
 
         return unresolved
 
+    def trace_all_foreshadowings(self) -> list[str]:
+        """
+        获取所有未完成的伏笔列表，返回格式化的字符串列表。
+        
+        Returns:
+            未完成伏笔的描述列表
+        """
+        unresolved = self.find_unresolved_foreshadowing()
+        result = []
+        
+        for item in unresolved:
+            concept = item.get("concept", "")
+            brief = item.get("brief", "")
+            targets = item.get("unresolved_targets", [])
+            
+            if targets:
+                for target in targets:
+                    target_name = target.get("name", "")
+                    chapter = target.get("chapter", "")
+                    if chapter:
+                        desc = f"「{concept}」预示了「{target_name}」（第{chapter}章）"
+                    else:
+                        desc = f"「{concept}」预示了「{target_name}」"
+                    result.append(desc)
+            elif brief:
+                result.append(f"「{concept}」: {brief}")
+            else:
+                result.append(f"「{concept}」")
+        
+        return result
+
     # ============================================================
     # 综合查询
     # ============================================================

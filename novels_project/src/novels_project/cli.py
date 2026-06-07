@@ -7,6 +7,7 @@ Supports both REPL mode and single-shot command mode.
 All paths are based on the current working directory (project root).
 Run from different directories to work on different stories.
 """
+import logging
 import os
 import sys
 import argparse
@@ -19,6 +20,7 @@ from .project_config import (
     ensure_directories, format_project_status, check_project_ready,
 )
 from .api_client import OpenAICompatibleClient
+from .transport.llm_factory import create_llm_client, ConfigurationError
 from .session import Session
 from .session_store import SessionStore, generate_session_id
 from .tool_spec import ToolRegistry, build_builtin_tool_registry
@@ -32,6 +34,8 @@ from .system_prompt import build_main_agent_system_prompt
 from .memory.integrator import GraphMemoryIntegrator
 from .memory.sync_manager import AutoSyncConfig
 
+logger = logging.getLogger("novels_project.cli")
+
 
 def _build_runtime(
     model: Optional[str] = None,
@@ -44,23 +48,21 @@ def _build_runtime(
     Returns (runtime, session_id, graph_integrator).
     """
     # Load config from environment
-    api_key = os.getenv("COMPANY_API_KEY")
-    if not api_key:
-        print("Error: COMPANY_API_KEY environment variable not set")
-        sys.exit(1)
-
-    base_url = os.getenv(
-        "API_BASE_URL",
-        "http://ai-service.tal.com/openai-compatible/v1"
-    )
     default_model = model or os.getenv("MODEL_NAME", "gemini-3-pro")
 
-    # Layer 1: API Client
-    api_client = OpenAICompatibleClient(
-        base_url=base_url,
-        api_key=api_key,
-        default_model=default_model,
-    )
+    # Layer 1: API Client - unified LLM factory
+    try:
+        api_client = create_llm_client(
+            api_key=os.getenv("COMPANY_API_KEY"),
+            base_url=os.getenv(
+                "API_BASE_URL", "http://ai-service.tal.com/openai-compatible/v1"
+            ) if os.getenv("COMPANY_API_KEY") else None,
+            default_model=default_model,
+        )
+    except ConfigurationError:
+        logger.critical("LLM client configuration failed")
+        print("Error: LLM client configuration failed", file=sys.stderr)
+        sys.exit(1)
 
     # Layer 3: Tool Registry
     builtin_registry = build_builtin_tool_registry()
@@ -122,9 +124,9 @@ def _build_runtime(
             auto_sync_config=auto_sync_config,
         )
         init_result = graph_integrator.initialize(force_full_sync=force_build_graph)
-        print(f"[图谱记忆] 已初始化 | 节点={init_result['node_count']} 边={init_result['edge_count']}")
+        logger.info("[图谱记忆] 已初始化 | 节点=%s 边=%s", init_result["node_count"], init_result["edge_count"])
     except Exception as e:
-        print(f"[图谱记忆] 初始化失败（非致命）: {e}")
+        logger.warning("[图谱记忆] 初始化失败（非致命）: %s", e)
 
     return runtime, session_id, graph_integrator
 

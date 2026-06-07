@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Table, Button, Space, Modal, Input, Form,
+  Table, Button, Space, Modal, Input, Form,
   Typography, Tag, Popconfirm, message, Empty,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
@@ -10,7 +10,7 @@ const { Title } = Typography;
 
 export default function WorkspacePage() {
   const {
-    workspaces, currentWorkspace, loading,
+    workspaces, loading,
     fetchWorkspaces, createWorkspace,
     deleteWorkspace, renameWorkspace, switchWorkspace,
   } = useWorkspaceStore();
@@ -20,16 +20,25 @@ export default function WorkspacePage() {
   const [renameTarget, setRenameTarget] = useState<Workspace | null>(null);
   const [form] = Form.useForm();
   const [renameForm] = Form.useForm();
+  const [workspaceName, setWorkspaceName] = useState<string>('');
 
   useEffect(() => {
     fetchWorkspaces();
   }, []);
 
-  const handleCreate = async (values: { name: string; base_path?: string }) => {
+  // 生成预览路径
+  const getPreviewPath = () => {
+    if (!workspaceName) return '';
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+    return `output/${workspaceName}_${timestamp}`;
+  };
+
+  const handleCreate = async (values: { name: string }) => {
     try {
-      await createWorkspace(values.name, values.base_path);
+      await createWorkspace(values.name);
       message.success('工作空间创建成功');
       setCreateOpen(false);
+      setWorkspaceName('');
       form.resetFields();
     } catch (e: any) {
       message.error(e.response?.data?.detail || '创建失败');
@@ -75,7 +84,13 @@ export default function WorkspacePage() {
         </Space>
       ),
     },
-    { title: '路径', dataIndex: 'path', key: 'path', ellipsis: true },
+    { title: '路径', dataIndex: 'path', key: 'path', ellipsis: true,
+      render: (text: string) => (
+        <span title={text}>
+          {text}
+        </span>
+      ),
+    },
     { title: '章节数', dataIndex: 'chapters_count', key: 'chapters', width: 80 },
     {
       title: '状态', key: 'status', width: 80,
@@ -140,15 +155,32 @@ export default function WorkspacePage() {
       <Modal
         title="新建工作空间"
         open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        onCancel={() => { 
+          setCreateOpen(false); 
+          setWorkspaceName(''); 
+          form.resetFields();
+        }}
         onOk={() => form.submit()}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="name" label="工作空间名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="例如: novel_xuanhuan" />
+            <Input 
+              placeholder="例如: novel_xuanhuan" 
+              onChange={(e) => setWorkspaceName(e.target.value)}
+            />
           </Form.Item>
-          <Form.Item name="base_path" label="基础路径（可选）">
-            <Input placeholder="默认为 ~/novels/" />
+          {/* 只读路径预览 */}
+          <Form.Item label="工作空间路径（自动生成）">
+            <div style={{ 
+              background: '#f5f5f5', 
+              padding: '8px 12px', 
+              borderRadius: 6, 
+              fontSize: 13, 
+              color: '#666',
+              fontFamily: 'monospace',
+            }}>
+              {workspaceName ? getPreviewPath() : '请输入工作空间名称'}
+            </div>
           </Form.Item>
         </Form>
       </Modal>

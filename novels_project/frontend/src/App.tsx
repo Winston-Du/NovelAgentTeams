@@ -1,4 +1,5 @@
 import { useRoutes, Navigate } from 'react-router-dom';
+import { App as AntdApp } from 'antd';
 import MainLayout from './layouts/MainLayout';
 import WorkspacePage from './pages/Workspace/WorkspacePage';
 import CharactersPage from './pages/Content/CharactersPage';
@@ -28,5 +29,5 @@ export default function App() {
     },
   ]);
 
-  return routes;
+  return <AntdApp>{routes}</AntdApp>;
 }

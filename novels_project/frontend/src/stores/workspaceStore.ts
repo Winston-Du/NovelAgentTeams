@@ -14,7 +14,7 @@ interface WorkspaceStore {
   currentWorkspace: Workspace | null;
   loading: boolean;
   fetchWorkspaces: () => Promise<void>;
-  createWorkspace: (name: string, basePath?: string) => Promise<void>;
+  createWorkspace: (name: string) => Promise<void>;
   deleteWorkspace: (name: string) => Promise<void>;
   renameWorkspace: (name: string, newName: string) => Promise<void>;
   switchWorkspace: (name: string) => Promise<void>;
@@ -39,8 +39,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     }
   },
 
-  createWorkspace: async (name, basePath) => {
-    await workspaceApi.create({ name, base_path: basePath });
+  createWorkspace: async (name) => {
+    await workspaceApi.create({ name });
     await get().fetchWorkspaces();
   },
 

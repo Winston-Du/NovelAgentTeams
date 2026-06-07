@@ -8,9 +8,11 @@ import {
   SaveOutlined, UploadOutlined, DownloadOutlined, DeleteOutlined,
   PlusOutlined, EditOutlined, SearchOutlined,
   BulbOutlined, ExperimentOutlined, EyeInvisibleOutlined, EyeOutlined,
+  WifiOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { settingsApi } from '../../services/api';
 import { ensureArray } from '../../utils/dataGuards';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -58,16 +60,18 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
 
+  // 工作空间管理
+  const { fetchWorkspaces } = useWorkspaceStore();
+
   // 模型供应商管理
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providerModalOpen, setProviderModalOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderInfo | null>(null);
   const [providerForm] = Form.useForm();
-  const [testingProvider, setTestingProvider] = useState(false);
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState('');
-  const [showModelAddForm, setShowModelAddForm] = useState(false);
-  const [modelAddForm] = Form.useForm();
+  
   const [keyVisible, setKeyVisible] = useState<Record<string, boolean>>({});
   const [vectorApiKeyVisible, setVectorApiKeyVisible] = useState(false);
   const [testingVectorConnection, setTestingVectorConnection] = useState(false);
@@ -75,18 +79,13 @@ export default function SettingsPage() {
   const [testMessage, setTestMessage] = useState('');
   const [initializingVectorDb, setInitializingVectorDb] = useState(false);
   const [initProgress, setInitProgress] = useState(0);
-  const [initStatus, setInitStatus] = useState('');
   const [showInitProgress, setShowInitProgress] = useState(false);
   const [modelChanged, setModelChanged] = useState(false);
-
-  const EMBEDDING_MODELS = [
-    { label: 'BGE Large Chinese (推荐)', value: 'bge-large-zh', description: '适合中文语义检索，平衡效果与速度' },
-    { label: 'BGE Large English', value: 'bge-large-en', description: '适合英文语义检索' },
-    { label: 'BGE M3', value: 'bge-m3', description: '多语言支持，大上下文窗口' },
-    { label: 'BGE M3 Pro', value: 'bge-m3-pro', description: '多语言增强版，更好的检索效果' },
-    { label: 'Qwen3 Embedding 4B', value: 'qwen3-embedding-4b', description: '大模型，高精度检索' },
-    { label: 'Qwen3 Embedding 0.6B', value: 'qwen3-embedding-0.6b', description: '轻量模型，快速响应' },
-  ];
+  
+  // 模型配置弹窗
+  const [modelConfigModalOpen, setModelConfigModalOpen] = useState(false);
+  const [editingModel, setEditingModel] = useState<ModelInfo | null>(null);
+  const [modelConfigForm] = Form.useForm();
 
   const handleVectorTest = async () => {
     setTestingVectorConnection(true);
@@ -118,58 +117,24 @@ export default function SettingsPage() {
     setInitializingVectorDb(true);
     setShowInitProgress(true);
     setInitProgress(0);
-    setInitStatus('正在初始化向量库...');
     
     try {
-      const response = await fetch('/api/memory/init', {
+      const response = await fetch('/api/vector/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       
       if (!response.ok) {
-        throw new Error('初始化失败');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || '初始化失败');
       }
       
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法读取响应');
-      }
+      const data = await response.json();
+      setInitProgress(100);
       
-      const decoder = new TextDecoder('utf-8');
-      let result = '';
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        result += decoder.decode(value, { stream: true });
-        const lines = result.split('\n');
-        
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const data = JSON.parse(line);
-              if (data.progress !== undefined) {
-                setInitProgress(data.progress);
-              }
-              if (data.status) {
-                setInitStatus(data.status);
-              }
-              if (data.completed) {
-                setInitProgress(100);
-                setInitStatus(data.message || '初始化完成');
-              }
-            } catch {
-              // 可能是进度信息
-            }
-          }
-        }
-      }
-      
-      message.success('向量库初始化完成');
+      message.success(`向量库初始化完成，共 ${data.document_count || 0} 个文档`);
     } catch (err: any) {
-      setInitStatus(`初始化失败: ${err.message}`);
-      message.error('向量库初始化失败');
+      message.error(`向量库初始化失败: ${err.message}`);
     } finally {
       setInitializingVectorDb(false);
     }
@@ -183,6 +148,7 @@ export default function SettingsPage() {
     loadSettings();
     loadBackups();
     loadProviders();
+    fetchWorkspaces();
   }, []);
 
   const loadSettings = async () => {
@@ -353,7 +319,7 @@ export default function SettingsPage() {
       return;
     }
     const testModel = provider.models[0].id;
-    setTestingProvider(true);
+    setTestingProviderId(provider.id);
     try {
       const res = await settingsApi.testProvider({
         base_url: provider.base_url,
@@ -361,13 +327,46 @@ export default function SettingsPage() {
         model_id: testModel,
         protocol: provider.protocol,
       });
-      message.success(`测试成功: ${res.data?.response || '连接正常'}`);
+      message.success('连接成功');
     } catch (err: any) {
-      const msg = err.response?.data?.detail || err.message || '测试失败';
-      message.error(msg);
+      const errorMsg = err.response?.data?.detail || err.message;
+      message.error(`测试失败: ${errorMsg}`);
     } finally {
-      setTestingProvider(false);
+      setTestingProviderId(null);
     }
+  };
+
+  const isMultimodalModel = (modelId: string): boolean => {
+    const multimodalKeywords = ['vision', 'gpt-4v', 'gpt-4o', 'dall-e', 'image', 'multi', 'vision-pro', 'kimi', 'qwen-vl'];
+    const lowerModelId = modelId.toLowerCase();
+    return multimodalKeywords.some(keyword => lowerModelId.includes(keyword));
+  };
+
+  const testModelConnection = async (provider: ProviderInfo, model: ModelInfo) => {
+    setTestingProviderId(provider.id);
+    try {
+      await settingsApi.testProvider({
+        base_url: provider.base_url,
+        api_key: provider.api_key,
+        model_id: model.id,
+        protocol: provider.protocol,
+      });
+      message.success(`模型 ${model.id} 连接成功`);
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message;
+      message.error(`模型 ${model.id} 测试失败: ${errorMsg}`);
+    } finally {
+      setTestingProviderId(null);
+    }
+  };
+
+  const openModelConfig = (model: ModelInfo) => {
+    setEditingModel(model);
+    modelConfigForm.setFieldsValue({
+      max_tokens: model.max_tokens || 4096,
+      context_window: model.context_window || 8192,
+    });
+    setModelConfigModalOpen(true);
   };
 
   const handleRevokeKey = async () => {
@@ -392,34 +391,6 @@ export default function SettingsPage() {
   };
 
   // ---- 模型操作 ----
-  const handleAddModel = async (providerId: string) => {
-    try {
-      const values = await modelAddForm.validateFields();
-      const provider = providers.find(p => p.id === providerId);
-      if (!provider) return;
-      const newModel: ModelInfo = {
-        id: values.model_id,
-        name: values.model_name || values.model_id,
-        max_tokens: values.max_tokens || 4096,
-        context_window: values.context_window || 128000,
-        supports_streaming: values.supports_streaming !== false,
-        supports_json_mode: values.supports_json_mode || false,
-      };
-      const updatedModels = [...provider.models, newModel];
-      await settingsApi.updateModelProvider(providerId, {
-        ...provider,
-        models: updatedModels,
-      });
-      message.success('模型已添加');
-      modelAddForm.resetFields();
-      setShowModelAddForm(false);
-      loadProviders();
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error('添加失败');
-    }
-  };
-
   const handleDeleteModel = async (providerId: string, modelId: string) => {
     const provider = providers.find(p => p.id === providerId);
     if (!provider) return;
@@ -509,7 +480,7 @@ export default function SettingsPage() {
             name={['vector_retrieval', 'enabled']}
             label="启用向量检索"
             valuePropName="checked"
-            extra="启用后将使用 SiliconFlow Embedding API 进行样例检索，提升写作参考效果"
+            extra="启用后将使用 Embedding 模型提升检索效果"
           >
             <Switch />
           </Form.Item>
@@ -521,7 +492,6 @@ export default function SettingsPage() {
               { required: true, message: '请输入 API 端点 URL' },
               { type: 'url', message: '请输入有效的 URL' },
             ]}
-            extra="SiliconFlow API 端点，通常为 https://api.siliconflow.cn/v1"
           >
             <Input placeholder="https://api.siliconflow.cn/v1" />
           </Form.Item>
@@ -547,7 +517,7 @@ export default function SettingsPage() {
                 name={['vector_retrieval', 'embedding_model']}
                 label="模型 ID"
                 rules={[{ required: true, message: '请输入模型 ID' }]}
-                extra="SiliconFlow 支持的 Embedding 模型 ID"
+                extra=""
               >
                 <Input
                   placeholder="例如: BAAI/bge-large-zh-v1.5"
@@ -565,27 +535,6 @@ export default function SettingsPage() {
               </Form.Item>
             </Col>
           </Row>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#333' }}>推荐模型</span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {EMBEDDING_MODELS.map((model) => (
-                <Tag
-                  key={model.value}
-                  color="default"
-                  onClick={() => {
-                    form.setFieldsValue({ vector_retrieval: { ...form.getFieldValue('vector_retrieval'), embedding_model: model.value } });
-                    setModelChanged(true);
-                  }}
-                  style={{ cursor: 'pointer', padding: '4px 12px' }}
-                >
-                  {model.label}
-                </Tag>
-              ))}
-            </div>
-          </div>
 
           <Space style={{ marginBottom: 16 }}>
             <Button
@@ -656,9 +605,6 @@ export default function SettingsPage() {
                   </span>
                 </div>
               </div>
-              <div style={{ marginTop: 8, fontSize: 13, color: '#666' }}>
-                {initStatus}
-              </div>
             </div>
           )}
 
@@ -689,7 +635,6 @@ export default function SettingsPage() {
             </div>
             <ul style={{ margin: 0, paddingLeft: 24, fontSize: 13, color: '#666' }}>
               <li style={{ marginBottom: 4 }}>向量检索用于在写作时检索相似样例，提供写作参考</li>
-              <li style={{ marginBottom: 4 }}>需要在 SiliconFlow 平台注册并获取 API Key</li>
               <li>推荐使用环境变量配置：export siliconflow_api=your_key</li>
             </ul>
           </div>
@@ -780,7 +725,7 @@ export default function SettingsPage() {
                     <Button
                       icon={<ExperimentOutlined />}
                       onClick={() => handleProviderTest(provider)}
-                      loading={testingProvider}
+                      loading={testingProviderId === provider.id}
                     >
                       测试
                     </Button>
@@ -835,19 +780,23 @@ export default function SettingsPage() {
                         </div>
                       </div>
                       <Space>
-                        <Tag color="default">文本</Tag>
+                        <Tag color={isMultimodalModel(model.id) ? 'purple' : 'default'}>
+                          {isMultimodalModel(model.id) ? '多模态' : '文本'}
+                        </Tag>
                         <Tag color="blue">用户添加</Tag>
                         <Button
                           type="text"
                           size="small"
-                          icon={<SearchOutlined />}
-                          title="搜索"
+                          icon={<WifiOutlined />}
+                          title="测试模型连通性"
+                          onClick={() => testModelConnection(provider, model)}
                         />
                         <Button
                           type="text"
                           size="small"
-                          icon={<BulbOutlined />}
-                          title="模型配置"
+                          icon={<SettingOutlined />}
+                          title="模型参数配置"
+                          onClick={() => openModelConfig(model)}
                         />
                         <Popconfirm
                           title="确定删除此模型？"
@@ -862,84 +811,6 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
-
-                {/* 添加模型表单 */}
-                {showModelAddForm && (
-                  <div style={{ marginTop: 16 }}>
-                    <Card
-                      size="small"
-                      style={{
-                        border: '1px dashed #d9d9d9',
-                        background: '#fafafa',
-                      }}
-                    >
-                      <Form form={modelAddForm} layout="vertical">
-                        <Form.Item
-                          name="model_id"
-                          label="模型 ID"
-                          rules={[{ required: true, message: '请输入模型 ID' }]}
-                          extra="例如 gpt-4o, gemini-2.0-flash"
-                        >
-                          <Input placeholder="模型 ID (如 gpt-4o, gemini-2.0-flash)" />
-                        </Form.Item>
-                        <Form.Item
-                          name="model_name"
-                          label="模型名称"
-                          extra="在系统界面中展示的友好名称，方便识别和选择"
-                        >
-                          <Input placeholder="模型名称 (如 GPT-4o, Gemini 2.0 Flash)" />
-                        </Form.Item>
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Form.Item name="max_tokens" label="最大输出 Token" initialValue={4096}>
-                              <InputNumber min={1} max={128000} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item name="context_window" label="上下文窗口大小" initialValue={128000}>
-                              <InputNumber min={1} max={1000000} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Form.Item name="supports_streaming" valuePropName="checked" initialValue={true} label="支持流式输出">
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item name="supports_json_mode" valuePropName="checked" initialValue={false} label="支持 JSON 模式">
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        <Space>
-                          <Button
-                            type="primary"
-                            onClick={handleAddModel.bind(null, provider.id)}
-                          >
-                            添加模型
-                          </Button>
-                          <Button onClick={() => { setShowModelAddForm(false); modelAddForm.resetFields(); }}>
-                            取消
-                          </Button>
-                        </Space>
-                      </Form>
-                    </Card>
-                  </div>
-                )}
-
-                {!showModelAddForm && (
-                  <Button
-                    type="dashed"
-                    icon={<PlusOutlined />}
-                    block
-                    style={{ marginTop: 12 }}
-                    onClick={() => setShowModelAddForm(true)}
-                  >
-                    添加模型
-                  </Button>
-                )}
               </div>
             ))}
           </>
@@ -953,7 +824,7 @@ export default function SettingsPage() {
         onCancel={() => setProviderModalOpen(false)}
         onOk={handleProviderSave}
         width={700}
-        destroyOnClose
+        destroyOnHidden
         okText="保存"
         cancelText="取消"
         okButtonProps={{
@@ -1213,6 +1084,40 @@ export default function SettingsPage() {
               </div>
             </>
           )}
+        </Form>
+      </Modal>
+
+      {/* 模型配置弹窗 */}
+      <Modal
+        title={`模型配置 - ${editingModel?.id}`}
+        open={modelConfigModalOpen}
+        onCancel={() => setModelConfigModalOpen(false)}
+        onOk={() => {
+          setModelConfigModalOpen(false);
+          message.success('模型配置已保存');
+        }}
+        width={500}
+        destroyOnHidden
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={modelConfigForm} layout="vertical">
+          <Form.Item
+            name="max_tokens"
+            label="最大输出 Tokens"
+            rules={[{ required: true, message: '请输入最大输出 Tokens' }]}
+            extra="模型单次响应的最大 Token 数量"
+          >
+            <InputNumber min={1} max={128000} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="context_window"
+            label="最大上下文长度"
+            rules={[{ required: true, message: '请输入最大上下文长度' }]}
+            extra="模型能处理的最大上下文 Token 数量"
+          >
+            <InputNumber min={1} max={262144} style={{ width: '100%' }} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

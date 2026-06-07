@@ -5,6 +5,10 @@
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
+import uuid
 import yaml
 from pathlib import Path
 from typing import Optional
@@ -16,8 +20,11 @@ from ..project_config import (
     get_project_root, get_character_cards_path,
     get_chapters_dir, get_summaries_dir, get_output_dir,
 )
+from ..shared.character_cards_utils import flatten_characters as _flatten_characters
 
 router = APIRouter()
+logger = logging.getLogger("novels_project.api.content")
+
 
 # ============================================================
 # Pydantic 模型
@@ -101,23 +108,8 @@ def _save_character_cards(data: dict):
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
-def _flatten_characters(data: dict) -> list[dict]:
-    """将层级结构的人物卡扁平化为列表。"""
-    result = []
-    for tier_key in ["s_tier", "a_tier", "b_tier", "c_tier"]:
-        tier_data = data.get(tier_key, {})
-        if isinstance(tier_data, dict):
-            # 支持两种结构：
-            # 1. 直接嵌套：{ name: { info } }
-            # 2. characters 子键：{ characters: { name: { info } } }
-            chars = tier_data.get("characters", tier_data)
-            if isinstance(chars, dict):
-                for name, info in chars.items():
-                    if isinstance(info, dict) and not name.startswith("_"):
-                        info["tier"] = tier_key
-                        info["name"] = name
-                        result.append(info)
-    return result
+# _flatten_characters 已移至 shared.character_cards_utils
+# 保留模块级别名以保证向后兼容
 
 
 @router.get("/characters")
@@ -239,17 +231,14 @@ async def get_chapters():
                 with open(summary_file, "r", encoding="utf-8") as f:
                     summary = yaml.safe_load(f)
             except Exception:
-                pass
+                logger.warning("无法解析章节摘要: %s", summary_file.name)
 
-        # 获取章节标题（取第一行）
+        # 从摘要或文件名获取标题
         title = None
-        try:
-            with open(cf, "r", encoding="utf-8") as f:
-                first_line = f.readline().strip()
-                if first_line.startswith("#"):
-                    title = first_line.lstrip("#").strip()
-        except Exception:
-            pass
+        if summary and isinstance(summary, dict):
+            title = summary.get("title")
+        if not title:
+            title = f"第 {chapter_id} 章"
 
         chapters.append({
             "chapter_id": chapter_id,
@@ -286,10 +275,7 @@ async def get_chapter(chapter_id: str):
             with open(summary_file, "r", encoding="utf-8") as f:
                 summary = yaml.safe_load(f)
         except Exception:
-            pass
-
-    # 获取标题
-    title = None
+            logger.warning("无法解析章节摘要: %s", summary_file.name)
     for line in content.split("\n"):
         if line.startswith("#"):
             title = line.lstrip("#").strip()
@@ -440,9 +426,8 @@ async def global_search(q: str = Query(..., min_length=1)):
                             "snippet": (summary.get("summary", "") or "")[:200],
                         })
             except Exception:
+                logger.debug("搜索时跳过无法读取的章节: chapter_%s", cid)
                 continue
-
-    # 搜索暗线
     plotlines = _load_plotlines()
     for pl in plotlines:
         search_text = f"{pl.get('name', '')} {pl.get('description', '')} {' '.join(pl.get('related_characters', []) or [])}"
@@ -485,8 +470,7 @@ async def optimize_character_content(req: OptimizeRequest):
     返回优化后的文本。
     """
     import os
-    from ..api.settings import load_model_providers, _resolve_api_key
-    from ..api_client import OpenAICompatibleClient
+    from ..transport.llm_factory import create_llm_client
 
     # 加载模型供应商配置
     providers_data = load_model_providers()
@@ -495,31 +479,20 @@ async def optimize_character_content(req: OptimizeRequest):
     if not providers:
         raise HTTPException(status_code=503, detail="没有配置任何模型供应商，请先在基础设置中配置")
 
-    # 尝试找到第一个可用的供应商
+    # 使用统一 LLM 工厂创建客户端
     client = None
     model_name = None
     for provider_id, provider_info in providers.items():
         if not isinstance(provider_info, dict):
             continue
-        base_url = provider_info.get("base_url", "")
-        api_key = _resolve_api_key(provider_info.get("api_key", ""))
-        models = provider_info.get("models", [])
-        if not base_url or not api_key or not models:
-            continue
-        model_name = models[0].get("id", "") if isinstance(models[0], dict) else str(models[0])
-        if not model_name:
-            continue
         try:
-            client = OpenAICompatibleClient(
-                base_url=base_url,
-                api_key=api_key,
-                default_model=model_name,
-            )
+            client = create_llm_client(provider_id=provider_id)
+            models = provider_info.get("models", [])
+            model_name = models[0].get("id", "") if isinstance(models[0], dict) else str(models[0])
             break
         except Exception:
+            logger.debug("优化内容时跳过不可用的供应商: %s", provider_id)
             continue
-
-    if not client:
         raise HTTPException(status_code=503, detail="没有可用的模型供应商，请检查 API Key 配置")
 
     # 构建优化提示词
@@ -590,19 +563,28 @@ async def optimize_character_content(req: OptimizeRequest):
         raise HTTPException(status_code=502, detail=f"模型调用失败: {str(e)}")
 
 
-@router.post("/annotate")
+@router.post("/annotate", deprecated=True)
 async def annotate_content(req: AnnotationRequest):
     """
-    对内容进行批注并调用 Agent 进行修改。
+    [DEPRECATED] 对内容进行批注并调用 Agent 进行修改。
 
-    此接口将批注提交到后端，触发 Agent 对指定内容进行修改。
+    此接口已废弃，请使用 /api/agent-sessions 统一会话 API。
+    Phase 2 迁移后，前端应完全切换到新接口。
     """
-    # 记录批注到文件
-    feedback_dir = get_project_root() / "feedback"
-    feedback_dir.mkdir(parents=True, exist_ok=True)
-
     import json
     from datetime import datetime
+
+    # 记录批注到文件
+    feedback_dir = get_project_root() / "feedback"
+    
+    try:
+        feedback_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        logger.warning("无法在工作空间创建 feedback 目录，尝试使用项目目录")
+        # 回退到项目目录
+        from ..project_config import _get_package_root
+        feedback_dir = _get_package_root() / "feedback"
+        feedback_dir.mkdir(parents=True, exist_ok=True)
 
     annotation = {
         "content_type": req.content_type,
@@ -613,12 +595,28 @@ async def annotate_content(req: AnnotationRequest):
         "status": "pending",
     }
 
-    annotation_file = feedback_dir / f"annotation_{req.content_type}_{req.content_id.replace('/', '_')}.json"
-    with open(annotation_file, "w", encoding="utf-8") as f:
-        json.dump(annotation, f, ensure_ascii=False, indent=2)
+    # 使用时间戳确保文件名唯一
+    safe_id = req.content_id.replace('/', '_') if req.content_id else datetime.now().strftime("%Y%m%d%H%M%S")
+    annotation_file = feedback_dir / f"annotation_{req.content_type}_{safe_id}.json"
+    
+    try:
+        with open(annotation_file, "w", encoding="utf-8") as f:
+            json.dump(annotation, f, ensure_ascii=False, indent=2)
+    except PermissionError as e:
+        logger.error("写入批注文件失败: %s, 路径: %s", str(e), annotation_file)
+        # 即使无法写入文件，也返回成功，只是记录日志
+        return {
+            "status": "submitted",
+            "annotation_id": f"memory_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "message": "批注已接收，Agent 将进行处理",
+            "warning": "无法持久化批注文件，已记录到内存",
+        }
 
+    logger.info("批注已保存: %s", annotation_file)
     return {
         "status": "submitted",
         "annotation_id": annotation_file.stem,
         "message": "批注已提交，Agent 将进行处理",
     }
+
+

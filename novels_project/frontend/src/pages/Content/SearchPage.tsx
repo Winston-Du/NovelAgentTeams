@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Input, Typography, List, Tag, Space, Empty, Spin } from 'antd';
+import { Input, Typography, Tag, Space, Empty, Spin } from 'antd';
 import { SearchOutlined, UserOutlined, FileTextOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { contentApi } from '../../services/api';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const typeIcons: Record<string, React.ReactNode> = {
   character: <UserOutlined />,
@@ -62,28 +62,27 @@ export default function SearchPage() {
           {results.length === 0 ? (
             <Empty description="未找到匹配结果" />
           ) : (
-            <List
-              dataSource={results}
-              renderItem={(item: any) => (
-                <List.Item>
-                  <List.Item.Meta
-                    avatar={typeIcons[item.type] || <FileTextOutlined />}
-                    title={
-                      <Space>
-                        <Tag color={typeColors[item.type] || 'default'}>
-                          {((): string => {
-                            const labels: Record<string, string> = { character: '人物', chapter: '章节', plotline: '暗线' };
-                            return labels[item.type] || item.type;
-                          })()}
-                        </Tag>
-                        <Text strong>{item.title}</Text>
-                      </Space>
-                    }
-                    description={item.snippet}
-                  />
-                </List.Item>
-              )}
-            />
+            <div className="search-results-list">
+              {results.map((item: any) => (
+                <div key={item.id} className="search-result-item">
+                  <Space style={{ marginBottom: 4 }}>
+                    <span style={{ fontSize: 18 }}>
+                      {typeIcons[item.type] || <FileTextOutlined />}
+                    </span>
+                    <Tag color={typeColors[item.type] || 'default'}>
+                      {((): string => {
+                        const labels: Record<string, string> = { character: '人物', chapter: '章节', plotline: '暗线' };
+                        return labels[item.type] || item.type;
+                      })()}
+                    </Tag>
+                    <Text strong>{item.title}</Text>
+                  </Space>
+                  <div style={{ color: 'rgba(0,0,0,0.65)', marginLeft: 30 }}>
+                    {item.snippet}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

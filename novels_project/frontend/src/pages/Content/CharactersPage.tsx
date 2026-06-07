@@ -342,7 +342,7 @@ export default function CharactersPage() {
         width={700}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical">
           <Form.Item name="name" label="姓名">

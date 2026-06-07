@@ -3,8 +3,14 @@ Layer 5: Sub-Agent System - Agent-as-Tool Pattern
 
 Defines the 4 novel-writing agents as tools that spawn their own
 ConversationRuntime instances when invoked by the main agent.
+
+Model names can be overridden via environment variables:
+  NOVEL_MODEL_CHIEF_EDITOR, NOVEL_MODEL_CHARACTER_DESIGNER,
+  NOVEL_MODEL_PLOT_WRITER, NOVEL_MODEL_PROOFREADER
 """
 import json
+import logging
+import os
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
@@ -16,6 +22,8 @@ from .system_prompt import build_sub_agent_system_prompt
 if TYPE_CHECKING:
     from .api_client import OpenAICompatibleClient
     from .runtime import ConversationRuntime
+
+logger = logging.getLogger("novels_project.agents")
 
 
 @dataclass
@@ -30,12 +38,13 @@ class AgentDefinition:
 
 
 # === 4 Agent Definitions ===
-# Preserving roles, models, and tool assignments from the original crew.py
+# Preserving roles and tool assignments from the original crew.py
+# Model names default to hardcoded values but can be overridden via env vars
 
 CHIEF_EDITOR = AgentDefinition(
     name="chief_editor",
     display_name="小说总编",
-    model="gemini-3-pro",
+    model=os.getenv("NOVEL_MODEL_CHIEF_EDITOR", "gemini-3-pro"),
     description=(
         "调用总编Agent生成章节大纲。传入卷大纲、章节信息、人物卡库、前章摘要等完整上下文。"
         "输出YAML格式的章大纲，包含story_structure、characters_appearance、climax_plan、"
@@ -57,7 +66,7 @@ CHIEF_EDITOR = AgentDefinition(
 CHARACTER_DESIGNER = AgentDefinition(
     name="character_designer",
     display_name="人物策划设计师",
-    model="glm-5",
+    model=os.getenv("NOVEL_MODEL_CHARACTER_DESIGNER", "glm-5"),
     description=(
         "调用人物设计师Agent生成人物状态卡。传入章大纲和人物基础卡库。"
         "输出YAML格式的人物状态卡，包含每个人物的chapter_arc、behavior_this_chapter、"
@@ -79,7 +88,7 @@ CHARACTER_DESIGNER = AgentDefinition(
 PLOT_WRITER = AgentDefinition(
     name="plot_writer",
     display_name="剧情撰写员",
-    model="glm-5",
+    model=os.getenv("NOVEL_MODEL_PLOT_WRITER", "glm-5"),
     description=(
         "调用剧情撰写员Agent创作章节内容（3000-5000字）。传入章大纲、人物状态卡。"
         "撰写员可使用样例检索(retrieve_writing_samples)和对话风格检查(check_character_voice)等工具。"
@@ -109,7 +118,7 @@ PLOT_WRITER = AgentDefinition(
 PROOFREADER = AgentDefinition(
     name="proofreader",
     display_name="资深校对",
-    model="gemini-3-pro",
+    model=os.getenv("NOVEL_MODEL_PROOFREADER", "gemini-3-pro"),
     description=(
         "调用校对Agent检查章节质量并生成摘要卡。传入大纲、人物卡、章节初稿。"
         "校对可使用风格检查、反馈记录、迭代控制等工具。"
@@ -206,18 +215,13 @@ class AgentRunner:
         )
 
         # Run the agent
-        print(f"\n{'='*50}")
-        print(f"  [{agent_def.display_name}] 开始执行")
-        print(f"  Model: {agent_def.model}")
+        logger.info("[%s] 开始执行 | model=%s", agent_def.display_name, agent_def.model)
         if agent_def.allowed_tools:
-            print(f"  Tools: {len(agent_def.allowed_tools)} available")
-        print(f"{'='*50}\n")
+            logger.debug("[%s] Tools available: %d", agent_def.display_name, len(agent_def.allowed_tools))
 
         summary = runtime.run_turn(prompt)
 
-        print(f"\n{'='*50}")
-        print(f"  [{agent_def.display_name}] 完成 (iterations={summary.iterations})")
-        print(f"{'='*50}\n")
+        logger.info("[%s] 完成 | iterations=%d", agent_def.display_name, summary.iterations)
 
         # Extract final text from the last assistant message
         result_text = summary.get_final_text()

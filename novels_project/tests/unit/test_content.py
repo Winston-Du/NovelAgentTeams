@@ -24,6 +24,7 @@ from novels_project.api.content import (
     _load_plotlines,
     _save_plotlines,
 )
+from novels_project.api.export import _validate_export_path
 
 
 class TestCharacterCards:
@@ -118,6 +119,52 @@ class TestSearch:
         search_query = "商人"
         content = "一位精明的商人"
         assert search_query.lower() in content.lower()
+
+
+class TestExport:
+    """测试章节导出功能"""
+
+    def test_validate_export_path_valid(self, tmp_path):
+        """测试验证有效路径"""
+        result = _validate_export_path(str(tmp_path))
+        assert result == tmp_path.resolve()
+
+    def test_validate_export_path_tilde(self, tmp_path, monkeypatch):
+        """测试验证带波浪号的路径"""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _validate_export_path("~/export")
+        expected = tmp_path / "export"
+        assert result == expected.resolve()
+
+    def test_validate_export_path_traversal_attack(self):
+        """测试路径遍历攻击检测"""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_export_path("/etc/../passwd")
+        assert exc_info.value.status_code == 400
+        assert "不允许使用路径遍历" in str(exc_info.value.detail)
+
+    def test_validate_export_path_parent_directory(self):
+        """测试父目录遍历攻击"""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_export_path("../malicious")
+        assert exc_info.value.status_code == 400
+        assert "不允许使用路径遍历" in str(exc_info.value.detail)
+
+    def test_validate_export_path_system_dir_blocked(self):
+        """测试系统目录被拒绝写入"""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_export_path("/etc/passwd")
+        assert exc_info.value.status_code == 400
+        assert "不允许写入系统目录" in str(exc_info.value.detail)
+
+    def test_validate_export_path_not_absolute(self):
+        """测试非绝对路径输入被解析为绝对路径后通过验证"""
+        # Path.resolve() 会将相对路径转换为绝对路径，因此此测试验证转换后的行为
+        result = _validate_export_path("relative/path")
+        assert result.is_absolute()
 
 
 if __name__ == "__main__":

@@ -61,11 +61,43 @@ export const contentApi = {
 
   // 批注
   annotate: (data: any) => api.post('/content/annotate', data),
+
+  // 章节导出
+  exportChapter: (id: string, targetDir: string, overwrite?: boolean) =>
+    api.get(`/export/chapters/${id}/export`, { params: { target_dir: targetDir, overwrite: overwrite || false } }),
+  exportChapters: (data: { chapter_ids?: string[]; target_dir: string; overwrite?: boolean }) =>
+    api.post('/export/chapters/export', data),
 };
 
 // ============================================================
-// Agent 配置 API
+// Agent 会话 API（Phase 2: 统一对话接口）
 // ============================================================
+export const agentSessionsApi = {
+  createSession: (data?: { client_type?: string; scene?: string }) =>
+    api.post('/agent-sessions', data || {}),
+  getSession: (sessionId: string) =>
+    api.get(`/agent-sessions/${sessionId}`),
+  listMessages: (sessionId: string) =>
+    api.get(`/agent-sessions/${sessionId}/messages`),
+  listSessions: () =>
+    api.get('/agent-sessions'),
+  /**
+   * 发起一轮对话，返回 SSE 流式响应
+   * 使用 fetch + ReadableStream 消费事件流
+   */
+  handleTurn: (sessionId: string, input: string, context?: Record<string, unknown>, signal?: AbortSignal) =>
+    fetch(`/api/agent-sessions/${sessionId}/turns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input,
+        stream: true,
+        context: context || {},
+        client: { type: 'web' },
+      }),
+      signal,
+    }),
+};
 export const agentApi = {
   list: () => api.get('/agents/'),
   get: (name: string) => api.get(`/agents/${name}`),

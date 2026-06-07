@@ -14,6 +14,7 @@ dependencies = [
     "networkx>=3.0",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.30.0",
+    "aiofiles>=24.0",
 ]
 
 [project.scripts]
@@ -82,7 +83,7 @@ exclude_lines = [
 show_missing = true
 skip_covered = false
 skip_empty = false
-fail_under = 50
+fail_under = 75
 
 [tool.coverage.html]
 directory = "htmlcov"

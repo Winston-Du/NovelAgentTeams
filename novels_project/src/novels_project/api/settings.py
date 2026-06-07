@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -14,12 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..project_config import get_project_root, get_system_config_dir, get_output_dir
 
 router = APIRouter()
+logger = logging.getLogger("novels_project.api.settings")
 
 
 def _get_settings_path() -> Path:
@@ -27,8 +30,12 @@ def _get_settings_path() -> Path:
     return get_system_config_dir() / "system_settings.yaml"
 
 
-def _load_settings() -> dict:
-    """加载系统设置。"""
+def _load_settings(resolve_keys: bool = False) -> dict:
+    """加载系统设置。
+
+    Args:
+        resolve_keys: 是否将 ${ENV_VAR} 格式的 API Key 替换为环境变量值
+    """
     path = _get_settings_path()
     if not path.exists():
         return _get_default_settings()
@@ -37,6 +44,11 @@ def _load_settings() -> dict:
     # 合并默认值
     defaults = _get_default_settings()
     defaults.update(data)
+    # 解析 API Key 中的环境变量引用
+    if resolve_keys:
+        vr = defaults.get("vector_retrieval", {})
+        if isinstance(vr, dict) and "api_key" in vr:
+            vr["api_key"] = _resolve_api_key(vr["api_key"])
     return defaults
 
 
@@ -114,9 +126,9 @@ class BackupInfo(BaseModel):
 # ============================================================
 
 @router.get("/")
-async def get_settings():
+async def get_settings(resolve_keys: bool = False):
     """获取系统设置。"""
-    return _load_settings()
+    return _load_settings(resolve_keys=resolve_keys)
 
 
 @router.put("/")
@@ -266,7 +278,11 @@ def _resolve_api_key(api_key: str) -> str:
     pattern = re.compile(r'\$\{(\w+)\}')
     def replacer(match):
         return os.environ.get(match.group(1), match.group(0))
-    return pattern.sub(replacer, api_key)
+    result = pattern.sub(replacer, api_key)
+    # 如果解析后仍然是 ${...} 格式，说明环境变量不存在，返回空字符串
+    if result.startswith("${") and result.endswith("}"):
+        return ""
+    return result
 
 
 def _get_default_model_providers() -> dict:
@@ -489,10 +505,6 @@ class VectorProviderTestRequest(BaseModel):
 @router.post("/vector/test")
 async def test_vector_provider(request: VectorProviderTestRequest):
     """测试向量检索 API 连接。验证 Embedding 模型是否可用。"""
-    import json
-    import urllib.request
-    import urllib.error
-
     resolved_key = _resolve_api_key(request.api_key)
 
     if not request.api_endpoint:
@@ -506,27 +518,29 @@ async def test_vector_provider(request: VectorProviderTestRequest):
         "input": test_text,
     }
 
-    req_body = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {resolved_key}",
     }
 
-    http_req = urllib.request.Request(url, data=req_body, headers=headers, method="POST")
+    timeout_val = request.timeout
 
     try:
-        timeout_val = request.timeout
-        with urllib.request.urlopen(http_req, timeout=timeout_val) as response:
-            response_body = response.read().decode("utf-8")
-            resp_data = json.loads(response_body)
+        async with httpx.AsyncClient(timeout=timeout_val) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            resp_data = response.json()
+
+            if response.status_code != 200:
+                err_msg = resp_data.get("error", {}).get("message", f"HTTP {response.status_code}")
+                raise HTTPException(status_code=response.status_code, detail=err_msg)
 
             if "data" in resp_data and isinstance(resp_data["data"], list) and len(resp_data["data"]) > 0:
                 embedding = resp_data["data"][0]
                 embedding_dim = len(embedding.get("embedding", []))
-                
+
                 return {
                     "status": "success",
-                    "http_status": response.status,
+                    "http_status": response.status_code,
                     "message": f"连接测试成功！Embedding 维度: {embedding_dim}",
                     "embedding_dimension": embedding_dim,
                     "model": resp_data.get("model", request.model_id),
@@ -534,27 +548,20 @@ async def test_vector_provider(request: VectorProviderTestRequest):
             else:
                 raise HTTPException(status_code=500, detail="响应格式异常")
 
-    except urllib.error.HTTPError as e:
-        try:
-            err_body = e.read().decode("utf-8")
-            err_data = json.loads(err_body)
-            err_msg = err_data.get("error", {}).get("message", str(e))
-        except Exception:
-            err_msg = str(e)
-        raise HTTPException(status_code=e.code, detail=f"HTTP {e.code}: {err_msg}")
-    except urllib.error.URLError as e:
-        raise HTTPException(status_code=502, detail=f"连接失败: {str(e.reason)}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail=f"连接超时 ({timeout_val}s)")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=502, detail=f"连接失败: {e}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"HTTP 错误: {e}")
     except Exception as e:
+        logger.exception("向量 API 测试失败")
         raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")
 
 
 @router.post("/models/test")
 async def test_model_provider(request: ProviderTestRequest):
     """测试模型供应商连接。发送简单消息测试 API 是否可用。"""
-    import json
-    import urllib.request
-    import urllib.error
-
     resolved_key = _resolve_api_key(request.api_key)
 
     if not request.base_url:
@@ -573,19 +580,24 @@ async def test_model_provider(request: ProviderTestRequest):
         "temperature": 0.0,
     }
 
-    req_body = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {resolved_key}",
     }
 
-    http_req = urllib.request.Request(url, data=req_body, headers=headers, method="POST")
+    # OpenRouter 需要额外的请求头
+    if "openrouter" in request.base_url.lower():
+        headers["HTTP-Referer"] = "https://novelagentteams.local"
+        headers["X-Title"] = "NovelAgentTeams"
 
     try:
-        timeout_val = 30
-        with urllib.request.urlopen(http_req, timeout=timeout_val) as response:
-            response_body = response.read().decode("utf-8")
-            resp_data = json.loads(response_body)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            resp_data = response.json()
+
+            if response.status_code != 200:
+                err_msg = resp_data.get("error", {}).get("message", f"HTTP {response.status_code}")
+                raise HTTPException(status_code=response.status_code, detail=err_msg)
 
             # 尝试获取响应内容
             content = ""
@@ -597,21 +609,17 @@ async def test_model_provider(request: ProviderTestRequest):
             usage = resp_data.get("usage", {})
             return {
                 "status": "success",
-                "http_status": response.status,
+                "http_status": response.status_code,
                 "response": content.strip() if content else "空响应",
                 "usage": usage,
-                "model": resp_data.get("model", test_model),
-                "latency_ms": 0,
             }
-    except urllib.error.HTTPError as e:
-        try:
-            err_body = e.read().decode("utf-8")
-            err_data = json.loads(err_body)
-            err_msg = err_data.get("error", {}).get("message", str(e))
-        except Exception:
-            err_msg = str(e)
-        raise HTTPException(status_code=e.code, detail=f"HTTP {e.code}: {err_msg}")
-    except urllib.error.URLError as e:
-        raise HTTPException(status_code=502, detail=f"连接失败: {str(e.reason)}")
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail="连接超时 (30s)")
+    except httpx.ConnectError as e:
+        raise HTTPException(status_code=502, detail=f"连接失败: {e}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"HTTP 错误: {e}")
     except Exception as e:
+        logger.exception("模型 API 测试失败")
         raise HTTPException(status_code=500, detail=f"测试失败: {str(e)}")

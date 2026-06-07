@@ -3,7 +3,7 @@
 使用 SiliconFlow Embedding API
 """
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 import os
 import time
 import logging
@@ -13,10 +13,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
-    from langchain_openai import OpenAIEmbeddings
-    from langchain_community.document_loaders import DirectoryLoader, UnstructuredMarkdownLoader
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import Chroma
+    from langchain.schema import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     LANGCHAIN_AVAILABLE = True
 except ImportError as e:
     LANGCHAIN_AVAILABLE = False
@@ -25,6 +24,138 @@ except ImportError as e:
     print(f"错误详情: {e}")
 
 from .retry_handler import RateLimitHandler
+from .project_config import get_project_root
+
+
+class SiliconFlowEmbeddings:
+    """SiliconFlow Embedding 模型封装类 - 使用 OpenAI SDK
+    
+    官方 API 文档: https://api-docs.siliconflow.cn/docs/api/embeddings-post
+    
+    支持的模型:
+    - BAAI/bge-large-zh-v1.5 (1024维度, 最大512 tokens)
+    - BAAI/bge-large-en-v1.5 (1024维度, 最大512 tokens)
+    - BAAI/bge-m3 (1024维度, 最大8192 tokens)
+    - Pro/BAAI/bge-m3 (1024维度, 最大8192 tokens)
+    - Qwen/Qwen3-Embedding-8B (支持自定义维度, 最大32768 tokens)
+    - Qwen/Qwen3-Embedding-4B (支持自定义维度, 最大32768 tokens)
+    - Qwen/Qwen3-Embedding-0.6B (支持自定义维度, 最大32768 tokens)
+    - Qwen/Qwen3-VL-Embedding-8B (多模态嵌入)
+    - netease-youdao/bce-embedding-base_v1 (768维度, 最大512 tokens)
+    """
+
+    # 官方 API 基础 URL
+    BASE_URL = "https://api.siliconflow.cn/v1"
+
+    def __init__(self, model: str = "BAAI/bge-large-zh-v1.5", api_key: str = None, 
+                 encoding_format: str = "float", dimensions: int = None,
+                 timeout: int = 60, max_retries: int = 3):
+        from openai import OpenAI
+        
+        self.model = model
+        self.encoding_format = encoding_format
+        self.dimensions = dimensions
+        
+        if not api_key:
+            raise ValueError("API key is required")
+        
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=self.BASE_URL,
+            timeout=timeout,
+            max_retries=max_retries
+        )
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """批量嵌入文档
+        
+        Args:
+            texts: 文本列表
+            
+        Returns:
+            嵌入向量列表
+        """
+        start_time = time.time()
+        logger.info(f"📤 开始批量嵌入请求 - 文本数量: {len(texts)}, 模型: {self.model}")
+        
+        try:
+            response = self.client.embeddings.create(
+                model=self.model,
+                input=texts,
+                encoding_format=self.encoding_format,
+                dimensions=self.dimensions
+            )
+            
+            end_time = time.time()
+            duration = end_time - start_time
+            
+            # 记录 token 使用情况
+            if hasattr(response, 'usage') and response.usage is not None:
+                prompt_tokens = response.usage.prompt_tokens
+                total_tokens = response.usage.total_tokens
+                logger.info(f"✅ 批量嵌入完成 - 耗时: {duration:.4f}s, 文本数: {len(texts)}, "
+                           f"向量数: {len(response.data)}, prompt_tokens: {prompt_tokens}, "
+                           f"total_tokens: {total_tokens}, QPS: {len(texts)/duration:.2f}")
+            else:
+                logger.info(f"✅ 批量嵌入完成 - 耗时: {duration:.4f}s, 文本数: {len(texts)}, "
+                           f"向量数: {len(response.data)}, QPS: {len(texts)/duration:.2f}")
+            
+            return [item.embedding for item in response.data]
+            
+        except Exception as e:
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(f"❌ 批量嵌入失败 - 耗时: {duration:.4f}s, 错误: {str(e)}")
+            raise
+
+    def embed_query(self, text: str) -> List[float]:
+        """嵌入单个查询
+        
+        Args:
+            text: 查询文本
+            
+        Returns:
+            嵌入向量
+        """
+        start_time = time.time()
+        text_length = len(text) if text else 0
+        logger.info(f"📤 开始单个嵌入请求 - 文本长度: {text_length}, 模型: {self.model}")
+        
+        try:
+            response = self.client.embeddings.create(
+                model=self.model,
+                input=text,
+                encoding_format=self.encoding_format,
+                dimensions=self.dimensions
+            )
+            
+            end_time = time.time()
+            duration = end_time - start_time
+            
+            # 记录 token 使用情况
+            if hasattr(response, 'usage') and response.usage is not None:
+                prompt_tokens = response.usage.prompt_tokens
+                total_tokens = response.usage.total_tokens
+                logger.info(f"✅ 单个嵌入完成 - 耗时: {duration:.4f}s, 文本长度: {text_length}, "
+                           f"向量维度: {len(response.data[0].embedding) if response.data else 0}, "
+                           f"prompt_tokens: {prompt_tokens}, total_tokens: {total_tokens}")
+            else:
+                logger.info(f"✅ 单个嵌入完成 - 耗时: {duration:.4f}s, 文本长度: {text_length}, "
+                           f"向量维度: {len(response.data[0].embedding) if response.data else 0}")
+            
+            return response.data[0].embedding
+            
+        except Exception as e:
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(f"❌ 单个嵌入失败 - 耗时: {duration:.4f}s, 文本长度: {text_length}, 错误: {str(e)}")
+            raise
+
+    def __call__(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        """支持直接调用"""
+        if isinstance(text, str):
+            return self.embed_query(text)
+        return self.embed_documents(text)
 
 
 class SampleRetrievalEngine:
@@ -44,18 +175,26 @@ class SampleRetrievalEngine:
 
     def __init__(self,
                  sample_dir: str = "samples",
-                 persist_dir: str = "vector_db/chroma_data",
+                 persist_dir: str = None,
                  embedding_model: str = 'bge-large-zh'):
         """
         初始化样例检索引擎
 
         Args:
             sample_dir: 样例文件目录
-            persist_dir: 向量库持久化目录
+            persist_dir: 向量库持久化目录（None 表示使用项目内部目录）
             embedding_model: Embedding 模型名称
         """
         self.sample_dir = Path(sample_dir)
-        self.persist_dir = Path(persist_dir)
+        
+        # 使用项目内部目录存储向量库（避免沙箱权限问题）
+        if persist_dir is None:
+            project_root = get_project_root()
+            self.persist_dir = project_root / "vector_db" / "chroma_data"
+            self.persist_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.persist_dir = Path(persist_dir)
+        
         self.vectorstore = None
         self._initialized = False
         
@@ -82,19 +221,20 @@ class SampleRetrievalEngine:
             os.getenv("SILICONFLOW_API_KEY") or
             os.getenv("siliconflow_api_key")
         )
-        
+
         if not api_key:
             print("⚠️  siliconflow_api 环境变量未设置，样例检索功能将不可用")
             print("   请设置环境变量: export siliconflow_api=your_api_key")
             return
 
         try:
-            # SiliconFlow API 兼容 OpenAI 格式
-            self.embeddings = OpenAIEmbeddings(
+            # 使用自定义的 SiliconFlow Embedding 封装类
+            self.embeddings = SiliconFlowEmbeddings(
                 model=self.embedding_model_name,
-                base_url="https://api.siliconflow.cn/v1",
                 api_key=api_key,
             )
+            # 测试一下 embeddings 是否工作
+            _ = self.embeddings.embed_query("测试")
             print(f"✅ Embeddings 初始化成功 (模型: {self.embedding_model_name})")
         except Exception as e:
             print(f"⚠️  Embedding 初始化失败: {e}")
@@ -141,13 +281,21 @@ class SampleRetrievalEngine:
 
         @retry_handler.retry_on_rate_limit
         def build_with_retry():
-            loader = DirectoryLoader(
-                str(self.sample_dir),
-                glob="**/*.md",
-                loader_cls=UnstructuredMarkdownLoader,
-                show_progress=True
-            )
-            docs = loader.load()
+            # 使用简单的文本文件加载方式，避免 unstructured 库的 NLTK 权限问题
+            from langchain.schema import Document
+
+            docs = []
+            for md_file in sample_files:
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    docs.append(Document(
+                        page_content=content,
+                        metadata={"source": str(md_file)}
+                    ))
+                except Exception as e:
+                    print(f"⚠️  读取文件 {md_file} 失败: {e}")
+                    continue
 
             if not docs:
                 print("⚠️  未找到样例文件")
@@ -174,13 +322,31 @@ class SampleRetrievalEngine:
                 return self._build_vectorstore_in_batches(splits)
             else:
                 print("正在调用 SiliconFlow Embedding API 生成向量...")
-                vectorstore = Chroma.from_documents(
-                    documents=splits,
-                    embedding=self.embeddings,
-                    persist_directory=str(self.persist_dir)
-                )
-                print(f"✅ 向量库构建完成")
-                return vectorstore
+                try:
+                    vectorstore = Chroma.from_documents(
+                        documents=splits,
+                        embedding=self.embeddings,
+                        persist_directory=str(self.persist_dir)
+                    )
+                    print(f"✅ 向量库构建完成")
+                    return vectorstore
+                except Exception as e:
+                    # 处理 macOS 沙箱权限问题 - 尝试使用项目内部目录
+                    if "Operation not permitted" in str(e) or "os error 1" in str(e):
+                        print(f"⚠️  写入外部目录失败: {e}")
+                        print("   尝试使用项目内部临时目录...")
+                        # 使用项目根目录下的向量库目录
+                        fallback_dir = get_project_root() / "vector_db" / "chroma_data"
+                        fallback_dir.mkdir(parents=True, exist_ok=True)
+                        print(f"   使用回退目录: {fallback_dir}")
+                        vectorstore = Chroma.from_documents(
+                            documents=splits,
+                            embedding=self.embeddings,
+                            persist_directory=str(fallback_dir)
+                        )
+                        print(f"✅ 向量库构建完成（使用回退目录）")
+                        return vectorstore
+                    raise
 
         try:
             self.vectorstore = build_with_retry()
@@ -293,17 +459,23 @@ def get_retrieval_engine(
 
     Args:
         sample_dir: 样例目录（可选，默认使用当前项目的 samples/）
-        persist_dir: 向量库目录（可选，默认使用当前项目的 vector_db/）
+        persist_dir: 向量库目录（可选，默认使用 novels_project 目录内的 vector_db/）
         embedding_model: Embedding 模型名称
     """
     global _global_engine
 
-    from .project_config import get_samples_dir, get_vector_db_dir
+    from .project_config import get_samples_dir
 
     if sample_dir is None:
         sample_dir = str(get_samples_dir())
+    
+    # 使用 novels_project 目录内部存储向量库（避免沙箱权限问题）
     if persist_dir is None:
-        persist_dir = str(get_vector_db_dir() / "chroma_data")
+        # 获取 novels_project 源代码目录
+        novels_project_dir = Path(__file__).parent.parent
+        persist_dir = str(novels_project_dir / "vector_db" / "chroma_data")
+        # 确保目录存在
+        Path(persist_dir).mkdir(parents=True, exist_ok=True)
 
     if _global_engine is None:
         _global_engine = SampleRetrievalEngine(

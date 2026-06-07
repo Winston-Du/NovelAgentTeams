@@ -46,6 +46,11 @@ from .graph_store import (
     REL_TYPE_FORESHAODWS,
 )
 
+from ..shared.exceptions import (
+    FALLBACK_EXCEPTIONS,
+    EntityExtractionError,
+)
+
 # 模块级 Logger
 logger = logging.getLogger("novels_project.memory.entity_extractor")
 
@@ -262,15 +267,24 @@ class EntityExtractor:
                 added_count = result["entities_added"]
                 relation_count = result["relations_added"]
                 tier_stats = result.get("tier_stats", {})
-            except Exception as e:
+            except FALLBACK_EXCEPTIONS as e:
+                # 可恢复异常：LLM 输出解析失败，安全降级为规则模式
                 logger.warning(
-                    "[EntityExtractor] LLM 人物卡提取失败，回退到规则模式 | error=%s", e,
+                    "[EntityExtractor] LLM 人物卡提取失败，回退到规则模式 | error=%s",
+                    e,
                 )
                 result = self._extract_character_cards_with_rules(data)
                 added_count = result["entities_added"]
                 relation_count = result["relations_added"]
                 tier_stats = result.get("tier_stats", {})
                 mode = "rules (fallback)"
+            except Exception as e:
+                # 不可恢复异常：API Key 过期、网络错误等，必须向上传播
+                logger.error(
+                    "[EntityExtractor] LLM 人物卡提取致命错误 | error=%s error_type=%s",
+                    e, type(e).__name__,
+                )
+                raise
         else:
             result = self._extract_character_cards_with_rules(data)
             added_count = result["entities_added"]
@@ -673,12 +687,20 @@ class EntityExtractor:
                 "[EntityExtractor] LLM 调用完成 | elapsed=%.2fs event_count=%d",
                 llm_elapsed, len(events),
             )
-        except Exception as e:
+        except FALLBACK_EXCEPTIONS as e:
+            # 可恢复异常：LLM 输出解析失败，回退到规则模式
             logger.warning(
                 "[EntityExtractor] LLM 调用失败，回退到规则模式 | chapter=%d error=%s",
                 chapter_id, e,
             )
             return self._extract_with_rules(text, chapter_id)
+        except Exception as e:
+            # 不可恢复异常：API Key 过期、网络超时等，必须向上传播
+            logger.error(
+                "[EntityExtractor] LLM 调用致命错误 | chapter=%d error=%s error_type=%s",
+                chapter_id, e, type(e).__name__,
+            )
+            raise
 
         # 从 events 中提取文本内容
         full_text = ""
