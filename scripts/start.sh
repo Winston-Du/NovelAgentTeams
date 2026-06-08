@@ -43,6 +43,9 @@ STARTUP_LOG="${LOG_DIR}/startup.log"
 # 必需的环境变量
 REQUIRED_ENV_VARS=("OPENROUTER_API_KEY")
 
+# 后端启动命令（动态查找）
+BACKEND_CMD=""
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -80,6 +83,39 @@ print_separator() {
     echo -e "${CYAN}------------------------------------------------------------${NC}"
 }
 
+# 动态查找 novels-server 命令路径
+# 优先查找策略: 显式路径 > which 查找 > Python 模块调用
+find_backend_cmd() {
+    # 1. 优先查找已安装的命令（兼容 conda、homebrew、系统安装等多种方式）
+    if command -v novels-server >/dev/null 2>&1; then
+        BACKEND_CMD="$(command -v novels-server)"
+        return 0
+    fi
+
+    # 2. 尝试常见路径
+    local candidates=(
+        "/opt/anaconda3/bin/novels-server"
+        "/usr/local/bin/novels-server"
+        "${HOME}/.local/bin/novels-server"
+    )
+    for cmd in "${candidates[@]}"; do
+        if [ -x "${cmd}" ]; then
+            BACKEND_CMD="${cmd}"
+            return 0
+        fi
+    done
+
+    # 3. 兜底：使用 Python 模块方式调用（不依赖脚本安装）
+    if command -v python3 >/dev/null 2>&1 || [ -x "/opt/anaconda3/bin/python" ]; then
+        local py
+        py="$(command -v python3 || echo /opt/anaconda3/bin/python)"
+        BACKEND_CMD="${py} -m novels_project.server"
+        return 0
+    fi
+
+    return 1
+}
+
 # ============================================================================
 # 初始化
 # ============================================================================
@@ -88,6 +124,13 @@ init() {
     : > "${STARTUP_LOG}"
     log_info "启动时间: $(date '+%Y-%m-%d %H:%M:%S')"
     log_info "项目根: ${PROJECT_ROOT}"
+
+    # 动态查找后端启动命令
+    if find_backend_cmd; then
+        log_info "后端启动命令: ${BACKEND_CMD}"
+    else
+        log_warn "未能找到 novels-server 命令，将在启动阶段报错"
+    fi
 }
 
 # ============================================================================
@@ -157,7 +200,8 @@ check_env_vars() {
 
     for var in "${REQUIRED_ENV_VARS[@]}"; do
         if [ -n "${!var:-}" ]; then
-            log_success "${var}: 已设置 (长度: ${#var}=${#})"
+            local var_value="${!var}"
+            log_success "${var}: 已设置 (长度: ${#var_value})"
         else
             log_warn "${var}: 未设置"
             missing_vars+=("${var}")
@@ -260,10 +304,20 @@ check_dependencies() {
 start_backend() {
     print_header "5/5  启动服务"
 
+    # 检查后端命令是否已找到
+    if [ -z "${BACKEND_CMD}" ]; then
+        log_error "后端命令未配置，请先安装 novels_project"
+        echo "  解决方案:"
+        echo "    cd ${NOVELS_PROJECT_DIR}"
+        echo "    pip install -e ."
+        return 2
+    fi
+
     # 启动后端
     log_info "启动后端 (端口 ${BACKEND_PORT})..."
     cd "${PROJECT_ROOT}"
-    nohup /opt/anaconda3/bin/python /Users/Winston/.local/bin/novels-server > "${BACKEND_LOG}" 2>&1 &
+    # 使用动态查找到的命令（支持 novel-server 脚本或 python -m 方式）
+    nohup ${BACKEND_CMD} > "${BACKEND_LOG}" 2>&1 &
     BACKEND_PID=$!
     log_info "后端 PID: ${BACKEND_PID}"
 
@@ -321,11 +375,11 @@ print_dashboard() {
     echo -e "${GREEN}│${NC}  ${YELLOW}前端 (Frontend)${NC}                                      ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    地址: ${CYAN}http://localhost:${FRONTEND_PORT}${NC}                       ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    局域网: ${CYAN}http://$(ipconfig getifaddr en0 2>/dev/null || echo 'N/A'):${FRONTEND_PORT}${NC}        ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    PID:  ${BACKEND_PID:-N/A}                                            ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC}    PID:  ${FRONTEND_PID:-N/A}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}  ${YELLOW}后端 (Backend)${NC}                                       ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    地址: ${CYAN}http://127.0.0.1:${BACKEND_PORT}${NC}                        ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    API 文档: ${CYAN}http://127.0.0.1:${BACKEND_PORT}/docs${NC}              ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    PID:  ${FRONTEND_PID:-N/A}                                            ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC}    PID:  ${BACKEND_PID:-N/A}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
     echo -e "${GREEN}│${NC}  ${YELLOW}日志文件${NC}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    后端: ${LOG_DIR}/backend.log                          ${GREEN}│${NC}"
