@@ -97,6 +97,47 @@ def create_app() -> FastAPI:
         "http://localhost:5173,http://localhost:8000,http://127.0.0.1:8000",
     )
     allow_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+    # ---------- 代理前端（开发环境） ----------
+    import os
+    from starlette.middleware.base import BaseHTTPMiddleware
+    import httpx
+
+    class ProxyToFrontendMiddleware(BaseHTTPMiddleware):
+        """将未匹配的请求代理到 Vite 前端 (http://127.0.0.1:5174)。仅在开发环境下启用。"""
+        def __init__(self, app, target_url: str):
+            super().__init__(app)
+            self.target_url = target_url.rstrip('/')
+
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            if response.status_code != 404:
+                return response
+            async with httpx.AsyncClient() as client:
+                url = f"{self.target_url}{request.url.path}"
+                if request.url.query:
+                    url = f"{url}?{request.url.query}"
+                try:
+                    resp = await client.request(
+                        method=request.method,
+                        url=url,
+                        headers=request.headers.raw,
+                        content=await request.body(),
+                        timeout=30.0,
+                    )
+                    from fastapi.responses import Response
+                    return Response(
+                        content=resp.content,
+                        status_code=resp.status_code,
+                        headers=resp.headers,
+                        media_type=resp.headers.get('content-type'),
+                    )
+                except httpx.RequestError as exc:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({"detail": f"Frontend proxy error: {exc}"}, status_code=502)
+
+    if os.getenv("ENV", "dev") == "dev":
+        app.add_middleware(ProxyToFrontendMiddleware, target_url="http://127.0.0.1:5174")
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,

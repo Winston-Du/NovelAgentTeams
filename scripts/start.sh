@@ -378,6 +378,7 @@ print_dashboard() {
     echo -e "${GREEN}│${NC}    PID:  ${FRONTEND_PID:-N/A}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}  ${YELLOW}后端 (Backend)${NC}                                       ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    地址: ${CYAN}http://127.0.0.1:${BACKEND_PORT}${NC}                        ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC}    （前端已通过后端代理，访问此地址即会转发到 http://localhost:${FRONTEND_PORT}）${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    API 文档: ${CYAN}http://127.0.0.1:${BACKEND_PORT}/docs${NC}              ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    PID:  ${BACKEND_PID:-N/A}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
