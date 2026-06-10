@@ -13,12 +13,12 @@ from .api_client import (
     AssistantEvent, TextDelta, ToolUseEvent, UsageEvent, MessageStop,
 )
 from .session import (
-    Session, ConversationMessage, MessageRole,
-    TextBlock, ToolUseBlock, ToolResultBlock,
+    Session, ConversationMessage,
+    TextBlock, ToolUseBlock,
 )
 from .tool_spec import ToolExecutor, ToolRegistry
 from .usage import UsageTracker
-from .compaction import compact_session, CompactionConfig
+from .compaction import compact_session
 
 logger = logging.getLogger("novels_project.runtime")
 
@@ -110,7 +110,19 @@ class ConversationRuntime:
         """
         try:
             injector = _get_context_injector()
-            return injector.inject_context(user_input)
+            logger.info(
+                "[Runtime] 上下文注入开始 | input_len=%d",
+                len(user_input) if user_input else 0,
+            )
+            enriched = injector.inject_context(user_input)
+            if enriched != user_input:
+                logger.info(
+                    "[Runtime] 上下文注入完成 | enriched_len=%d delta=%d",
+                    len(enriched), len(enriched) - len(user_input),
+                )
+            else:
+                logger.info("[Runtime] 上下文注入完成 | 无补充信息")
+            return enriched
         except Exception as e:
             logger.warning("上下文注入失败: %s", e)
             return user_input
@@ -135,6 +147,11 @@ class ConversationRuntime:
         """
         # Phase 1: user input
         # 自动注入上下文信息（角色信息、伏笔等）
+        logger.info(
+            "[Runtime] run_turn 启动 | model=%s max_iter=%d history_msgs=%d input_preview=%s",
+            self.model, self.max_iterations, len(self.session.messages),
+            (user_input or "")[:80],
+        )
         enriched_input = self._inject_context(user_input)
         self.session.messages.append(ConversationMessage.user_text(enriched_input))
 
@@ -144,9 +161,17 @@ class ConversationRuntime:
 
         # Phase 2: agent loop
         truncation_limit = self.output_truncation_limit
+        logger.info(
+            "[Runtime] 进入 Agent 循环 | truncation_limit=%d",
+            truncation_limit,
+        )
         while True:
             iterations += 1
             if iterations > self.max_iterations:
+                logger.error(
+                    "[Runtime] Agent 循环超过最大迭代次数 | max=%d",
+                    self.max_iterations,
+                )
                 raise RuntimeError(
                     f"Agent loop exceeded {self.max_iterations} iterations. "
                     f"This likely indicates an infinite tool-calling loop."
@@ -159,6 +184,11 @@ class ConversationRuntime:
                 tools=self.tool_registry.all_specs(),
                 model=self.model,
             )
+            logger.info(
+                "[Runtime] iter=%d 调用 LLM | tools=%d msgs=%d",
+                iterations, len(self.tool_registry.all_specs()),
+                len(self.session.messages),
+            )
 
             # Call LLM
             events = self.api_client.stream(request, print_stream=self.print_stream)
@@ -168,6 +198,10 @@ class ConversationRuntime:
             if usage:
                 self.usage_tracker.record(usage)
                 assistant_msg.usage = usage
+                logger.info(
+                    "[Runtime] iter=%d LLM 返回 | input_tokens=%d output_tokens=%d",
+                    iterations, usage.input_tokens, usage.output_tokens,
+                )
 
             # Add to session
             self.session.messages.append(assistant_msg)
@@ -175,15 +209,29 @@ class ConversationRuntime:
 
             # Extract pending tool uses
             pending_tools = assistant_msg.get_tool_uses()
+            logger.info(
+                "[Runtime] iter=%d 解析工具调用 | count=%d names=%s",
+                iterations, len(pending_tools),
+                [t.name for t in pending_tools],
+            )
 
             # No tools = conversation turn complete
             if not pending_tools:
+                logger.info(
+                    "[Runtime] iter=%d 无工具调用，本轮结束 | total_iter=%d",
+                    iterations, iterations,
+                )
                 break
 
             # Execute each tool
             for tool_block in pending_tools:
                 if self.print_stream:
                     logger.debug("Tool: %s", tool_block.name)
+                logger.info(
+                    "[Runtime] iter=%d 执行工具 | name=%s input=%s",
+                    iterations, tool_block.name,
+                    str(tool_block.input)[:200],
+                )
 
                 output, is_error = self.tool_executor.execute(
                     tool_block.name, tool_block.input
@@ -206,11 +254,22 @@ class ConversationRuntime:
                 self.session.messages.append(result_msg)
                 tool_results.append(result_msg)
 
+                logger.info(
+                    "[Runtime] iter=%d 工具完成 | name=%s is_error=%s output_len=%d preview=%s",
+                    iterations, tool_block.name, is_error, len(output),
+                    output[:120].replace("\n", " "),
+                )
+
                 if is_error:
                     logger.warning("Tool error [%s]: %s", tool_block.name, output[:200])
 
         # Phase 3: auto-compact
         auto_compaction = self._maybe_auto_compact()
+        if auto_compaction:
+            logger.info(
+                "[Runtime] 触发自动压缩 | 移除消息数=%d",
+                auto_compaction.removed_message_count,
+            )
 
         # Phase 4: build summary
         summary = TurnSummary(
@@ -219,6 +278,12 @@ class ConversationRuntime:
             iterations=iterations,
             usage=self.usage_tracker.cumulative_usage(),
             auto_compaction=auto_compaction,
+        )
+        logger.info(
+            "[Runtime] turn 总结 | iterations=%d tool_calls=%d final_text_len=%d total_in=%d total_out=%d",
+            iterations, len(tool_results),
+            len(summary.get_final_text()),
+            summary.usage.input_tokens, summary.usage.output_tokens,
         )
 
         # Phase 5: invoke turn hooks (replaces monkey-patching)
@@ -261,6 +326,10 @@ class ConversationRuntime:
     def _maybe_auto_compact(self) -> Optional[AutoCompactionEvent]:
         """Check cumulative tokens and compact if over threshold."""
         estimated_tokens = self.session.total_estimated_tokens()
+        logger.info(
+            "[Runtime] 评估是否需要自动压缩 | est_tokens=%d threshold=%d",
+            estimated_tokens, self.auto_compaction_threshold,
+        )
         if estimated_tokens < self.auto_compaction_threshold:
             return None
 

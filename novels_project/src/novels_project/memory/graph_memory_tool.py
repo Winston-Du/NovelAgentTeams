@@ -14,12 +14,16 @@
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Optional
 
 from .graph_store import GraphStore
 from .graph_query import GraphQuery
 from .entity_extractor import EntityExtractor
 from .sync_manager import SyncManager
+
+logger = logging.getLogger("novels_project.memory.graph_memory_tool")
 
 
 # ============================================================
@@ -112,10 +116,19 @@ def query_character_network(
     Returns:
         关系网络的格式化文本
     """
+    logger.info(
+        "[GraphTool] query_character_network | name=%s max_depth=%d",
+        character_name, max_depth,
+    )
+    start = time.time()
     query = get_graph_query()
     result = query.get_character_network(character_name, max_depth=min(max_depth, 3))
 
     if "error" in result:
+        logger.warning(
+            "[GraphTool] query_character_network 查询失败 | name=%s error=%s",
+            character_name, result.get("error"),
+        )
         return f"查询失败: {result['error']}"
 
     lines = [f"【{character_name} 的关系网络】\n"]
@@ -166,7 +179,17 @@ def query_character_network(
         for r in indirect[:10]:  # 限制显示数量
             lines.append(f"  - {r.get('name', '')} (距离: {r.get('distance', '?')})")
 
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    logger.info(
+        "[GraphTool] query_character_network 完成 | name=%s direct=%d indirect=%d events=%d orgs=%d elapsed=%.3fs",
+        character_name,
+        len(result.get("direct_relations", [])),
+        len(result.get("indirect_relations", [])),
+        len(result.get("events", [])),
+        len(result.get("organizations", [])),
+        time.time() - start,
+    )
+    return text
 
 
 def query_relation_between(
@@ -183,6 +206,11 @@ def query_relation_between(
     Returns:
         关系链路的格式化文本
     """
+    logger.info(
+        "[GraphTool] query_relation_between | source=%s target=%s",
+        source, target,
+    )
+    start = time.time()
     query = get_graph_query()
     result = query.get_relation_between(source, target)
 
@@ -208,7 +236,14 @@ def query_relation_between(
         for p in all_paths[:3]:
             lines.append(f"  {' → '.join(p)}")
 
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    logger.info(
+        "[GraphTool] query_relation_between 完成 | source=%s target=%s direct=%d paths=%d elapsed=%.3fs",
+        source, target, len(result.get("direct_relations", [])),
+        len(result.get("all_paths", [])),
+        time.time() - start,
+    )
+    return text
 
 
 def search_graph(keyword: str, entity_type: str = "all") -> str:
@@ -222,11 +257,17 @@ def search_graph(keyword: str, entity_type: str = "all") -> str:
     Returns:
         搜索结果
     """
+    logger.info(
+        "[GraphTool] search_graph | keyword=%s type=%s",
+        keyword, entity_type,
+    )
+    start = time.time()
     query = get_graph_query()
     types = None if entity_type == "all" else [entity_type]
     results = query.search(keyword, types)
 
     if not results:
+        logger.info("[GraphTool] search_graph 无结果 | keyword=%s", keyword)
         return f"未找到与「{keyword}」相关的实体。"
 
     lines = [f"搜索「{keyword}」结果 ({len(results)} 条):\n"]
@@ -235,6 +276,10 @@ def search_graph(keyword: str, entity_type: str = "all") -> str:
         if r.get("brief"):
             lines.append(f"    {r['brief']}")
 
+    logger.info(
+        "[GraphTool] search_graph 完成 | keyword=%s hits=%d elapsed=%.3fs",
+        keyword, len(results), time.time() - start,
+    )
     return "\n".join(lines)
 
 
@@ -248,6 +293,8 @@ def trace_foreshadowing(concept_name: str) -> str:
     Returns:
         伏笔追踪结果
     """
+    logger.info("[GraphTool] trace_foreshadowing | concept=%s", concept_name)
+    start = time.time()
     query = get_graph_query()
     result = query.trace_foreshadowing(concept_name)
 
@@ -289,7 +336,16 @@ def trace_foreshadowing(concept_name: str) -> str:
         for c in chars:
             lines.append(f"  - {c['name']} [{c.get('relation', '')}]")
 
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    logger.info(
+        "[GraphTool] trace_foreshadowing 完成 | concept=%s foreshadowed=%d refs=%d chars=%d elapsed=%.3fs",
+        concept_name,
+        len(result.get("foreshadowed_events", [])),
+        len(result.get("referenced_by", [])),
+        len(chars),
+        time.time() - start,
+    )
+    return text
 
 
 def get_graph_context(entity_name: str, context_type: str = "writing") -> str:
@@ -303,8 +359,17 @@ def get_graph_context(entity_name: str, context_type: str = "writing") -> str:
     Returns:
         格式化的上下文字符串
     """
+    logger.info(
+        "[GraphTool] get_graph_context | entity=%s type=%s",
+        entity_name, context_type,
+    )
     query = get_graph_query()
-    return query.get_graph_context(entity_name, context_type)
+    text = query.get_graph_context(entity_name, context_type)
+    logger.info(
+        "[GraphTool] get_graph_context 完成 | entity=%s text_len=%d",
+        entity_name, len(text) if text else 0,
+    )
+    return text
 
 
 def build_knowledge_graph(
@@ -322,6 +387,12 @@ def build_knowledge_graph(
         构建结果
     """
     from ..project_config import get_character_cards_path, get_chapters_dir, get_project_root
+
+    logger.info(
+        "[GraphTool] build_knowledge_graph 触发 | cards_path=%s full_sync=%s",
+        character_cards_path or "(default)", full_sync,
+    )
+    start = time.time()
 
     if not character_cards_path:
         character_cards_path = str(get_character_cards_path())
@@ -343,7 +414,7 @@ def build_knowledge_graph(
     graph_path = graph_dir / "knowledge_graph.json"
     store.save(str(graph_path))
 
-    return (
+    result_text = (
         f"知识图谱构建完成: {stats['mode']} 模式\n"
         f"  - 人物: {stats.get('characters_added', stats.get('characters_updated', 0))} 个\n"
         f"  - 章节: {stats.get('chapters_processed', 0)} 章\n"
@@ -352,12 +423,20 @@ def build_knowledge_graph(
         f"  - 跳过: {stats.get('skipped', 0)}\n"
         f"图谱已保存至: {graph_path}"
     )
+    logger.info(
+        "[GraphTool] build_knowledge_graph 完成 | elapsed=%.3fs | %s",
+        time.time() - start, result_text.replace("\n", " | "),
+    )
+    return result_text
 
 
 def get_graph_stats() -> str:
     """获取知识图谱的统计信息。"""
+    logger.info("[GraphTool] get_graph_stats 调用")
     store = get_graph_store()
-    return store.export_summary()
+    text = store.export_summary()
+    logger.info("[GraphTool] get_graph_stats 完成 | text_len=%d", len(text) if text else 0)
+    return text
 
 
 # ============================================================

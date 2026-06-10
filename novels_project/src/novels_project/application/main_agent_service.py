@@ -9,15 +9,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 from typing import Optional, AsyncIterator
 
 from ..api_client import (
-    OpenAICompatibleClient, TokenUsage, AssistantEvent,
-    TextDelta, ToolUseEvent, UsageEvent,
+    AssistantEvent, TextDelta, ToolUseEvent, UsageEvent,
 )
 from ..session import Session
-from ..session_store import SessionStore, generate_session_id
 from ..tool_spec import ToolRegistry, build_builtin_tool_registry
 from ..tool_executor import MainToolExecutor
 from ..runtime import ConversationRuntime, TurnSummary
@@ -27,11 +24,10 @@ from ..agents import (
 )
 from ..system_prompt import build_main_agent_system_prompt
 from ..transport.llm_factory import create_llm_client, ConfigurationError
-from ..project_config import get_sessions_dir
 
 from .contracts import (
     CreateSessionRequest, HandleTurnRequest, SessionInfo,
-    EventType, RouteType, TurnStatus, SessionStatus, ErrorCode,
+    EventType,
 )
 from .trace_service import get_trace_service, TraceService
 from .session_facade import get_session_facade, SessionFacade
@@ -185,6 +181,11 @@ class MainAgentService:
         """
         trace_id = self._trace.generate_trace_id()
         turn_id = self._trace.generate_turn_id()
+        logger.info(
+            "[MainAgentService] turn 接收 | session=%s trace=%s turn=%s stream=%s input_preview=%s",
+            session_id, trace_id, turn_id, stream,
+            (request.input or "")[:120],
+        )
 
         # 确保运行时可用
         try:
@@ -200,6 +201,7 @@ class MainAgentService:
         # 恢复会话
         session = self._sessions.load(session_id)
         if session is None:
+            logger.warning("[MainAgentService] 会话不存在 | session=%s", session_id)
             yield self._trace.build_event(
                 EventType.TURN_FAILED, trace_id, session_id, turn_id,
                 {"error": f"会话不存在: {session_id}"},
@@ -208,6 +210,10 @@ class MainAgentService:
 
         # 路由分类
         route_type = self._router.classify(request.input, request.context)
+        logger.info(
+            "[MainAgentService] 路由分类完成 | session=%s route=%s",
+            session_id, route_type.value,
+        )
         yield self._trace.build_event(
             EventType.ROUTE_SELECTED, trace_id, session_id, turn_id,
             {"route_type": route_type.value},
@@ -231,6 +237,10 @@ class MainAgentService:
                     loop,
                 )
             elif isinstance(event, ToolUseEvent):
+                logger.info(
+                    "[MainAgentService] 模型触发工具 | name=%s id=%s",
+                    event.name, event.id,
+                )
                 asyncio.run_coroutine_threadsafe(
                     bridge.put_event(bridge.create_event(
                         EventType.TOOL_CALLED, trace_id, session_id, turn_id,
@@ -239,6 +249,11 @@ class MainAgentService:
                     loop,
                 )
             elif isinstance(event, UsageEvent):
+                logger.info(
+                    "[MainAgentService] usage 事件 | in=%d out=%d total=%d",
+                    event.usage.input_tokens, event.usage.output_tokens,
+                    event.usage.total_tokens,
+                )
                 asyncio.run_coroutine_threadsafe(
                     bridge.put_event(bridge.create_event(
                         EventType.USAGE_UPDATED, trace_id, session_id, turn_id,
@@ -269,14 +284,23 @@ class MainAgentService:
                 max_iterations=50,
                 print_stream=False,
             )
+            logger.info(
+                "[MainAgentService] 运行时构建完成 | session=%s tools=%d model=%s",
+                session_id, len(self._tool_registry.all_specs()), self._model,
+            )
 
             # 在线程池中运行（避免阻塞事件循环）
             summary: TurnSummary = await asyncio.get_event_loop().run_in_executor(
                 None, runtime.run_turn, request.input,
             )
+            logger.info(
+                "[MainAgentService] run_turn 完成 | session=%s iter=%d tool_calls=%d",
+                session_id, summary.iterations, len(summary.tool_results),
+            )
 
             # 保存会话
             self._sessions.save(session, session_id)
+            logger.info("[MainAgentService] 会话已保存 | session=%s", session_id)
 
             # 发送完成事件
             final_text = summary.get_final_text()

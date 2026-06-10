@@ -10,11 +10,10 @@ import logging
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("novels_project.retrieval_engine")
 
 try:
     from langchain_community.vectorstores import Chroma
-    from langchain.schema import Document
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     LANGCHAIN_AVAILABLE = True
 except ImportError as e:
@@ -412,15 +411,25 @@ class SampleRetrievalEngine:
                         k: int = 3,
                         chapter_type: Optional[str] = None) -> List[str]:
         """检索相似样例"""
+        logger.info(
+            "[Retrieval] retrieve_samples 调用 | query_len=%d k=%d type=%s",
+            len(query) if query else 0, k, chapter_type or "any",
+        )
+        start = time.time()
         self._ensure_initialized()
 
         if not self.vectorstore:
+            logger.warning("[Retrieval] 向量库未初始化 | query=%s", query[:50])
             return ["⚠️  向量库未初始化，无法检索样例。请先运行初始化脚本。"]
 
         try:
             results = self.vectorstore.similarity_search(query, k=k)
 
             if not results:
+                logger.info(
+                    "[Retrieval] 未找到相关样例 | query_preview=%s",
+                    query[:50],
+                )
                 return ["未找到相关样例"]
 
             formatted_results = []
@@ -431,9 +440,14 @@ class SampleRetrievalEngine:
                     f"内容摘录:\n{doc.page_content[:500]}...\n"
                 )
 
+            logger.info(
+                "[Retrieval] 检索完成 | hits=%d elapsed=%.3fs",
+                len(results), time.time() - start,
+            )
             return formatted_results
 
         except Exception as e:
+            logger.exception("[Retrieval] 检索失败 | error=%s", e)
             return [f"❌ 检索失败: {e}"]
 
     def refresh(self):

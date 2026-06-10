@@ -10,9 +10,8 @@
 5. 章节摘要自动收集 - 自动提取章节摘要并存入向量库
 """
 import logging
-import re
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 logger = logging.getLogger("novels_project.context_injector")
 
@@ -172,27 +171,54 @@ class ContextInjector:
     def inject_context(self, user_input: str) -> str:
         """自动注入上下文信息"""
         if not self.enabled:
+            logger.info("[ContextInjector] 已禁用，跳过注入")
             return user_input
-        
+
+        logger.info(
+            "[ContextInjector] 开始注入 | input_len=%d",
+            len(user_input) if user_input else 0,
+        )
         context_parts = []
-        
+
         # 1. 提取角色名称并获取角色上下文
         character_names = self.extract_character_names(user_input)
+        logger.info(
+            "[ContextInjector] 识别到角色 | count=%d names=%s",
+            len(character_names), character_names,
+        )
         for name in character_names[:3]:  # 最多处理3个角色
             char_context = self.get_character_context(name)
             if char_context:
                 context_parts.append(char_context)
-        
+                logger.info(
+                    "[ContextInjector] 角色上下文已加入 | name=%s context_len=%d",
+                    name, len(char_context),
+                )
+            else:
+                logger.info("[ContextInjector] 角色无上下文 | name=%s", name)
+
         # 2. 获取伏笔信息
         foreshadow_context = self.get_foreshadowing_context()
         if foreshadow_context:
             context_parts.append(foreshadow_context)
-        
+            logger.info(
+                "[ContextInjector] 伏笔上下文已加入 | len=%d",
+                len(foreshadow_context),
+            )
+        else:
+            logger.info("[ContextInjector] 无伏笔上下文")
+
         # 如果有上下文，添加到用户输入前面
         if context_parts:
             context_str = "\n\n".join(context_parts)
-            return f"【上下文信息】\n{context_str}\n\n【用户输入】\n{user_input}"
-        
+            enriched = f"【上下文信息】\n{context_str}\n\n【用户输入】\n{user_input}"
+            logger.info(
+                "[ContextInjector] 注入完成 | total_context_len=%d final_len=%d",
+                len(context_str), len(enriched),
+            )
+            return enriched
+
+        logger.info("[ContextInjector] 注入完成 | 无补充信息")
         return user_input
     
     def extract_chapter_summary(self, chapter_text: str) -> str:

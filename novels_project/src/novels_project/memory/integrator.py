@@ -36,7 +36,7 @@ from typing import Any, Optional, Callable
 from .graph_store import GraphStore
 from .graph_query import GraphQuery
 from .entity_extractor import EntityExtractor
-from .sync_manager import SyncManager, AutoSyncConfig, SyncMode, SyncStatus
+from .sync_manager import SyncManager, AutoSyncConfig, SyncMode
 
 logger = logging.getLogger("novels_project.memory.integrator")
 
@@ -255,6 +255,11 @@ class GraphMemoryIntegrator:
 
     def _on_turn_completed(self, turn_summary: Any) -> None:
         """Hook callback: invoked after each conversation turn completes."""
+        logger.info(
+            "[GraphMemoryIntegrator] turn 结束 hook 触发 | iter=%d tool_calls=%d",
+            getattr(turn_summary, "iterations", -1),
+            len(getattr(turn_summary, "tool_results", []) or []),
+        )
         if self._initialized and self._sync_manager:
             self._check_and_sync()
 
@@ -476,12 +481,6 @@ class GraphMemoryIntegrator:
         )
 
         # 注册工具（工具已在 tool_spec.py 中注册，这里仅验证）
-        from .graph_memory_tool import (
-            init_graph_memory,
-            get_graph_store,
-            get_graph_query,
-            get_sync_manager,
-        )
 
         # 将全局单例绑定到集成器实例
         store = integrator.graph_store
