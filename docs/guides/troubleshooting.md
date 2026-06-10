@@ -20,6 +20,7 @@
 | TRB-008 | Worktree | 废弃 worktree 残留 | [→](#trb-008) |
 | TRB-009 | 依赖 | pydantic 代码签名错误 | [→](#trb-009) |
 | TRB-010 | API | API 405 错误 | [→](#trb-010) |
+| TRB-011 | 环境 | No module named uvicorn（环境错位）| [→](#trb-011) |
 
 ---
 
@@ -323,6 +324,60 @@ router = APIRouter(prefix="/api/agent-sessions", tags=["Agent 会话"])
 async def create_session(...):
     ...
 ```
+
+---
+
+## <a id="trb-011"></a>TRB-011: No module named uvicorn（环境错位）
+
+### 症状
+```bash
+$ PYTHONPATH=src python -m uvicorn novels_project.server:create_app ...
+/opt/miniconda3/bin/python: No module named uvicorn
+```
+
+### 原因
+**`python` 命令和 `novels-server` 指向不同的 Python 环境**：
+
+| 组件 | 路径 | 环境 |
+|------|------|------|
+| 直接调用的 `python` | `/opt/miniconda3/bin/python` | miniconda |
+| `novels-server` 内嵌的 python | `/opt/anaconda3/bin/python` | anaconda |
+
+uvicorn 实际安装在 **anaconda** 环境，但用户用 miniconda 的 `python` 调用，所以报模块未找到。
+
+### 解决方案
+
+**方案 1（推荐）**：使用 `start.sh` 自动管理环境
+
+```bash
+bash scripts/start.sh
+# 脚本内部已绑定 anaconda 环境，不再有环境错位问题
+```
+
+**方案 2**：手动指定 anaconda 的 python
+
+```bash
+# 使用 anaconda 的 python（已安装 uvicorn 的环境）
+PYTHONPATH=src /opt/anaconda3/bin/python -m uvicorn novels_project.server:create_app --host 0.0.0.0 --port 8000 --factory
+```
+
+**方案 3**：在 miniconda 环境中安装 uvicorn
+
+```bash
+/opt/miniconda3/bin/python -m pip install uvicorn fastapi
+```
+
+**方案 4**：使用 `novels-server` 命令
+
+```bash
+nohup /opt/anaconda3/bin/python /Users/Winston/.local/bin/novels-server > backend.log 2>&1 &
+```
+
+### 预防
+
+- ✅ **统一使用 `scripts/start.sh` 启动** —— 已通过 `find_backend_cmd` 函数动态绑定正确的 Python 环境
+- ❌ **避免直接调用 `python`** —— 不同 conda 环境会指向不同 Python
+- ✅ **如需手动启动**，先用 `which novels-server` 确认命令路径
 
 ---
 

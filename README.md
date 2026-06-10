@@ -51,8 +51,8 @@ pip install -e ".[dev]"
 ```bash
 # LLM API 配置
 export API_KEY="your_api_key_here"
-export API_BASE_URL="http://ai-service.tal.com/openai-compatible/v1"  # 可选，有默认值
-export MODEL_NAME="gemini-3-pro"  # 可选，默认 gemini-3-pro
+export API_BASE_URL="https://openrouter.ai/api/v1"  # 必填项
+export MODEL_NAME="gemini-3-pro"  # 必填项，填写模型id
 
 # 向量检索 API（可选，用于样例检索）
 export siliconflow_api="your_siliconflow_key"
@@ -120,6 +120,65 @@ novels
 ```
 
 ### 6. 启动 Web 界面（可选）
+
+#### 方式一：一键启动脚本（推荐）
+
+`scripts/start.sh` 是我们提供的统一启动脚本，会自动完成以下工作：
+
+- ✅ 检查 Python、Node.js、npm、git 工具是否就绪
+- ✅ 检查必需的环境变量（`OPENROUTER_API_KEY`）
+- ✅ 检查端口 8000 / 5174 是否被占用
+- ✅ 动态查找 `novels-server` 命令（不再硬编码路径）
+- ✅ 启动后端、前端并实时健康检查
+- ✅ 显示服务面板（地址、端口、PID、日志位置）
+- ✅ 异常时给出友好的错误提示
+
+**使用方法**：
+
+```bash
+# 在项目根目录运行
+bash scripts/start.sh
+
+# 停止服务
+bash scripts/stop.sh
+```
+
+**启动效果示例**：
+
+```
+============================================================
+  启动 NovelAgentTeams 服务
+============================================================
+
+[1/5] 工具检查 ............... ✅
+[2/5] 环境变量检查 ........... ✅ OPENROUTER_API_KEY: 已设置 (长度: 73)
+[3/5] 端口检查 ............... ✅ 8000, 5174 端口空闲
+[4/5] 依赖检查 ............... ✅
+[5/5] 启动服务 ............... ✅
+
+============================================================
+  服务面板
+============================================================
+│  前端 (Frontend)
+│    地址:  http://localhost:5174
+│    局域网: http://192.168.0.39:5174
+│    PID:   96260
+│  后端 (Backend)
+│    地址:  http://127.0.0.1:8000
+│    API 文档: http://127.0.0.1:8000/docs
+│    PID:   96210
+============================================================
+```
+
+**日志文件位置**：
+
+| 文件 | 内容 |
+|------|------|
+| `/tmp/novels-startup/startup.log` | 启动过程日志 |
+| `/tmp/novels-startup/backend.log` | 后端运行日志 |
+| `/tmp/novels-startup/frontend.log` | 前端运行日志 |
+
+#### 方式二：手动启动
 
 ```bash
 # 启动后端服务（开发模式，热重载）
