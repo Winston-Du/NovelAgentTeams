@@ -14,6 +14,8 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+import httpx
 
 from .api import (
     workspace_router,
@@ -98,9 +100,6 @@ def create_app() -> FastAPI:
     )
     allow_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
     # ---------- 代理前端（开发环境） ----------
-    import os
-    from starlette.middleware.base import BaseHTTPMiddleware
-    import httpx
 
     class ProxyToFrontendMiddleware(BaseHTTPMiddleware):
         """将未匹配的请求代理到 Vite 前端 (http://127.0.0.1:5174)。仅在开发环境下启用。"""

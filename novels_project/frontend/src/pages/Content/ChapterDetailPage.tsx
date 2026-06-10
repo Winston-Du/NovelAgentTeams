@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Typography, Button, Space, Spin, Descriptions, Tag, Divider, message,
-  Collapse, Input,
+  Typography, Button, Space, Spin, Descriptions, Tag, Divider, Collapse, Input,
 } from 'antd';
+import { message } from 'antd'; // will be replaced by useMessage hook in component
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -13,6 +13,7 @@ const { Title } = Typography;
 const { TextArea } = Input;
 
 export default function ChapterDetailPage() {
+  const [msgApi, contextHolder] = message.useMessage();
   const { chapterId } = useParams<{ chapterId: string }>();
   const navigate = useNavigate();
   const [chapter, setChapter] = useState<any>(null);
@@ -28,7 +29,7 @@ export default function ChapterDetailPage() {
     setLoading(true);
     contentApi.getChapter(chapterId)
       .then(res => setChapter(res.data))
-      .catch(() => message.error('获取章节失败'))
+      .catch(() => msgApi.error('获取章节失败'))
       .finally(() => setLoading(false));
   }, [chapterId]);
 
