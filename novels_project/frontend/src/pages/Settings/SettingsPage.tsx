@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Card, Typography, Form, Select, Switch, Button,
-  InputNumber, message, Space, List, Popconfirm, Divider,
+  InputNumber, message, Space, Flex, Popconfirm, Divider,
   Modal, Input, Tag, Row, Col, Collapse, ConfigProvider, theme as antTheme,
 } from 'antd';
 import {
@@ -654,29 +654,35 @@ export default function SettingsPage() {
           </Button>
         </Space>
 
-        <List
-          dataSource={backups}
-          renderItem={(item: any) => (
-            <List.Item
-              actions={[
-                <Popconfirm title="确定恢复此备份？" onConfirm={() => handleRestore(item.name)}>
-                  <Button type="link" icon={<DownloadOutlined />}>恢复</Button>
-                </Popconfirm>,
-              ]}
-            >
-              <List.Item.Meta
-                title={item.name}
-                description={
-                  <Space>
+        <Flex
+          vertical
+          gap="small"
+          style={{ width: '100%' }}
+        >
+          {backups.length === 0 ? (
+            <Text type="secondary">暂无备份</Text>
+          ) : (
+            backups.map((item: any) => (
+              <Flex
+                key={item.name}
+                align="center"
+                justify="space-between"
+                style={{ padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 6 }}
+              >
+                <Flex vertical gap={2}>
+                  <Text strong>{item.name}</Text>
+                  <Space size="middle">
                     <Text type="secondary">{item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}</Text>
                     <Text type="secondary">{item.created_at}</Text>
                   </Space>
-                }
-              />
-            </List.Item>
+                </Flex>
+                <Popconfirm title="确定恢复此备份？" onConfirm={() => handleRestore(item.name)}>
+                  <Button type="link" icon={<DownloadOutlined />}>恢复</Button>
+                </Popconfirm>
+              </Flex>
+            ))
           )}
-          locale={{ emptyText: '暂无备份' }}
-        />
+        </Flex>
       </Card>
 
       <Divider />

@@ -273,7 +273,7 @@ export default function MemoryPage() {
         title="实体详情"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={400}
+        size="default"
       >
         {selectedEntity && (
           <Descriptions column={1} bordered size="small">

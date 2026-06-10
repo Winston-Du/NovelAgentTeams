@@ -1,0 +1,63 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "plugins": [
+    "antd",
+    "react",
+    "react-hooks",
+    "@typescript-eslint"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:react/recommended",
+    "plugin:react-hooks/recommended"
+  ],
+  "settings": {
+    "react": {
+      "version": "detect"
+    }
+  },
+  "rules": {
+    /**
+     * Ant Design 规范
+     * - no-deprecated: 禁止使用已弃用的 Antd 组件 / 属性
+     *   覆盖包括：List、Drawer.width、PageHeader、BackTop、Comment、
+     *             Modal.visible、Modal.destroyOnClose、Card.bordered 等
+     * - no-empty-block: 禁止空函数块
+     */
+    "antd/no-deprecated": "error",
+    "antd/no-empty-block": "warn",
+    "antd/no-unused-prop": "warn",
+
+    /**
+     * React
+     */
+    "react/react-in-jsx-scope": "off",
+    "react/prop-types": "off",
+
+    /**
+     * TypeScript
+     */
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "@typescript-eslint/no-explicit-any": "warn"
+  },
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "*.config.js",
+    "*.config.ts"
+  ]
+}

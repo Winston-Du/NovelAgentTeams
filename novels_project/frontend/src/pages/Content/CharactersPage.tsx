@@ -245,7 +245,7 @@ export default function CharactersPage() {
         title={selectedChar?.name || '人物详情'}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={500}
+        size="large"
       >
         {selectedChar && (
           <Descriptions column={1} bordered size="small">
