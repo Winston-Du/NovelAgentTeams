@@ -498,7 +498,9 @@ class TestRunTurn:
 
         compaction_result = MagicMock()
         compaction_result.removed_message_count = 2
-        compaction_result.compacted_session = runtime.session  # same for test
+        # 10b: 经验信号是 session 引用是否变化
+        # 必须 mock 一个不同的 Session 实例才能触发 auto_compaction
+        compaction_result.compacted_session = MagicMock()  # 新 Session 实例
 
         with patch('novels_project.runtime.compact_session', return_value=compaction_result):
             summary = runtime.run_turn("hi")

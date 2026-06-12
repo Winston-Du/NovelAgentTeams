@@ -75,15 +75,20 @@ def test_runtime_accepts_agent_id_parameter():
 # === 场景 4: 阈值触发压缩 ===
 
 def test_maybe_auto_compact_uses_memory_config_threshold():
-    """_maybe_auto_compact 应使用 MemoryConfig.dialogue_compression_threshold。"""
-    cfg = MemoryConfig(dialogue_compression_threshold=0.5)  # 50% 触发
+    """_maybe_auto_compact 应使用 MemoryConfig.dialogue_compression_threshold。
+
+    10b 升级：使用综合分数（70% 比例 + 30% 增长率）。
+    比例 0.9 即可触发（综合分 0.9 * 0.7 = 0.63 > 0.6 阈值）。
+    """
+    cfg = MemoryConfig(dialogue_compression_threshold=0.5)  # 比例阈值（10a 兼容）
     runtime = _make_runtime(
         memory_config=cfg,
         auto_compaction_threshold=1000,
     )
 
-    # 注入消息使 estimated tokens 达到 600（> 500 trigger）
-    for _ in range(10):
+    # 注入消息使比例达 90%（900 tokens）
+    # 估算 900 tokens, 综合分 = 0.9 * 0.7 + 0 = 0.63 > 0.6 → 触发
+    for _ in range(15):
         runtime.session.messages.append(
             ConversationMessage(
                 role=MessageRole.USER,
@@ -91,7 +96,6 @@ def test_maybe_auto_compact_uses_memory_config_threshold():
             )
         )
 
-    # 估算 ~600 tokens, 50% of 1000 = 500 → 触发
     event = runtime._maybe_auto_compact()
     assert event is not None
     assert event.removed_message_count > 0

@@ -428,3 +428,81 @@ def test_logging_on_fallback(caplog):
         kw in log_text
         for kw in ["fallback", "失败", "回退", "fails", "fail"]
     ), f"未发现 fallback 日志: {caplog.text!r}"
+
+
+# === Task 10b: 契约不变性测试（钉死 compactor 返回 session 的行为）===
+
+class TestSessionIdentityInvariant:
+    """Task 10b: Runtime 用 session 引用是否变化作经验信号，依赖以下契约。
+
+    契约:
+    - 实际压缩: compacted_session 必须是新 Session 实例
+    - 阈值未达: compacted_session 必须等于原 session
+    - 消息不足: compacted_session 必须等于原 session
+
+    这些测试钉死契约，确保 Runtime 的经验信号永远可靠。
+    """
+
+    def test_compactor_returns_new_session_on_compression(self):
+        """契约 1: 实际压缩时必须返回新的 Session 实例。"""
+        cfg = MemoryConfig(
+            dialogue_compression_threshold=0.5,
+            preserve_recent_messages=2,
+        )
+        compactor = DialogueCompactor(config=cfg)
+        session = Session()
+        for i in range(10):
+            session.messages.append(
+                ConversationMessage(
+                    role=MessageRole.USER,
+                    blocks=[TextBlock(text=f"m{i} " * 50)],
+                )
+            )
+
+        result = compactor.compact(session, max_tokens=100)
+
+        assert result.removed_message_count > 0
+        assert result.compacted_session is not session, (
+            "违反契约: 实际压缩时 compacted_session 应是新实例"
+        )
+
+    def test_compactor_returns_same_session_below_threshold(self):
+        """契约 2: 阈值未达时返回原 Session 引用。"""
+        cfg = MemoryConfig(dialogue_compression_threshold=0.99)  # 几乎不触发
+        compactor = DialogueCompactor(config=cfg)
+        session = Session()
+        session.messages.append(
+            ConversationMessage(
+                role=MessageRole.USER,
+                blocks=[TextBlock(text="hello")],
+            )
+        )
+
+        result = compactor.compact(session, max_tokens=1000)
+
+        assert result.removed_message_count == 0
+        assert result.compacted_session is session, (
+            "违反契约: 阈值未达时 compacted_session 应等于原 session"
+        )
+
+    def test_compactor_returns_same_session_too_few_messages(self):
+        """契约 3: 消息不足时返回原 Session 引用。"""
+        cfg = MemoryConfig(
+            dialogue_compression_threshold=0.1,  # 强制触发阈值
+            preserve_recent_messages=100,  # 但消息数 < preserve
+        )
+        compactor = DialogueCompactor(config=cfg)
+        session = Session()
+        session.messages.append(
+            ConversationMessage(
+                role=MessageRole.USER,
+                blocks=[TextBlock(text="only one message")],
+            )
+        )
+
+        result = compactor.compact(session, max_tokens=1)  # 强制触发
+
+        assert result.removed_message_count == 0
+        assert result.compacted_session is session, (
+            "违反契约: 消息不足时 compacted_session 应等于原 session"
+        )

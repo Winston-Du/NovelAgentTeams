@@ -20,6 +20,8 @@ from .tool_spec import ToolExecutor, ToolRegistry
 from .usage import UsageTracker
 from .compaction import compact_session
 from .memory.memory_config import MemoryConfig  # 10a: 记忆子系统基础支持
+from .memory.memory_manager import MemoryManager  # 10b: 记忆子系统集成
+from .memory.dialogue_compactor import DialogueCompactor  # 10b: 对话压缩
 
 logger = logging.getLogger("novels_project.runtime")
 
@@ -81,6 +83,8 @@ class ConversationRuntime:
         # === 10a: 记忆子系统基础支持 ===
         agent_id: str = "main",
         memory_config: Optional[MemoryConfig] = None,
+        # === 10b: 记忆子系统集成（DialogueCompactor）===
+        memory_manager: Optional[MemoryManager] = None,
     ):
         self.session = session
         self.api_client = api_client
@@ -97,7 +101,12 @@ class ConversationRuntime:
         # === 10a 新增属性 ===
         self.agent_id = agent_id
         self.memory_config = memory_config or MemoryConfig()
-        # 注：dialogue_compactor 在 Task 10b 中添加（依赖 DialogueCompactor + MemoryManager）
+
+        # === 10b 新增属性 ===
+        self.memory_manager = memory_manager
+        # 增长率跟踪（10b 新增）
+        self._last_compress_estimated: int = 0
+        self._turns_since_last_compress: int = 0
 
         # Hook system for post-turn processing (replaces monkey-patching)
         self._turn_hooks: list[Callable[[TurnSummary], None]] = []
@@ -333,42 +342,107 @@ class ConversationRuntime:
         return ConversationMessage.assistant(blocks, usage), usage
 
     def _maybe_auto_compact(self) -> Optional[AutoCompactionEvent]:
-        """Check cumulative tokens and compact if over threshold.
+        """10b: 委托压缩决策给 compactor，Runtime 用综合分数过滤"不值得压缩"。
 
-        10a: 使用 MemoryConfig.dialogue_compression_threshold（比例）作为触发比例。
-        实际触发 token 数 = auto_compaction_threshold * dialogue_compression_threshold。
-        10a 阶段回退到 compact_session（规则压缩），10b 阶段优先使用 dialogue_compactor。
+        综合分数（Runtime 独有信息）:
+        - 70% token 比例（与 compactor 重复但 Runtime 先过滤）
+        - 30% token 增长率（Runtime 独有跨 turn 趋势）
+
+        经验信号（不信任自报字段）:
+        - 用 session 引用是否变化作"是否压缩"信号
+        - 契约由 test_dialogue_compactor.py::TestSessionIdentityInvariant 钉死
         """
         estimated_tokens = self.session.total_estimated_tokens()
         max_tokens = self.auto_compaction_threshold
 
-        # 从 MemoryConfig 读取阈值（10a）
-        threshold = self.memory_config.dialogue_compression_threshold
-        trigger_tokens = int(max_tokens * threshold)
-
+        # === Runtime 独有信号：综合分数（A + B 加权）===
+        score = self._compute_compression_score(estimated_tokens, max_tokens)
         logger.info(
-            "[Runtime] 评估是否需要自动压缩 | est_tokens=%d trigger=%d threshold=%.2f agent=%s",
-            estimated_tokens, trigger_tokens, threshold, self.agent_id,
-        )
-        if estimated_tokens < trigger_tokens:
-            return None
-
-        # 10a 阶段：直接使用 compact_session（规则压缩）
-        # 10b 阶段：优先 dialogue_compactor
-        logger.info(
-            "[Runtime] 调用压缩接口 | agent=%s backend=rule compactor=None",
+            "[Runtime] 评估是否需要自动压缩 | est_tokens=%d score=%.3f threshold=%.2f agent=%s",
+            estimated_tokens, score, self.memory_config.dialogue_compression_threshold,
             self.agent_id,
         )
-        result = compact_session(self.session)
-        if result.removed_message_count > 0:
+        if score < 0.6:  # 综合分不足，不调 compactor
+            return None
+
+        # === 委托压缩执行：优先 dialogue_compactor，降级到 compact_session ===
+        if self.dialogue_compactor is not None:
+            logger.info(
+                "[Runtime] 调用压缩接口 | agent=%s backend=dialogue_compactor compactor=%d",
+                self.agent_id, id(self.dialogue_compactor),
+            )
+            result = self.dialogue_compactor.compact(self.session, max_tokens)
+        else:
+            logger.info(
+                "[Runtime] 调用压缩接口 | agent=%s backend=rule compactor=None",
+                self.agent_id,
+            )
+            result = compact_session(self.session)
+
+        # === 经验信号：session 引用是否变化（不是 removed_message_count）===
+        if result.compacted_session is not self.session:
             self.session = result.compacted_session
+            self._last_compress_estimated = estimated_tokens
+            self._turns_since_last_compress = 0
             logger.info(
                 "Auto-compaction: %d messages compressed",
                 result.removed_message_count,
             )
             logger.info(
-                "[Runtime] 对话压缩完成 | agent=%s removed=%d summary_len=%d (10a: rule)",
+                "[Runtime] 对话压缩完成 | agent=%s removed=%d summary_len=%d",
                 self.agent_id, result.removed_message_count, len(result.summary_text),
             )
             return AutoCompactionEvent(removed_message_count=result.removed_message_count)
+
+        # 经验信号显示未压缩（阈值未达或消息不足）
+        logger.info(
+            "[Runtime] 对话压缩未触发 | agent=%s reason=compactor_no_op",
+            self.agent_id,
+        )
         return None
+
+    def _compute_compression_score(
+        self, estimated: int, max_tokens: int
+    ) -> float:
+        """计算综合压缩分数（0-1，> 0.6 触发压缩）。
+
+        综合分数 = 0.7 * token_比例 + 0.3 * token_增长率(归一化)
+        - 比例: 反映当前距离满的距离（与 compactor 重复但 Runtime 先过滤）
+        - 增长率: 反映跨 turn 增长趋势（Runtime 独有）
+        """
+        # A: token 比例（0-1+）
+        score_a = estimated / max_tokens
+
+        # B: token 增长率（每 turn 平均新增 tokens，归一化到 0-1）
+        if self._turns_since_last_compress > 0:
+            growth_per_turn = (
+                estimated - self._last_compress_estimated
+            ) / self._turns_since_last_compress
+        else:
+            growth_per_turn = 0
+        # 2000 tokens/turn 视为满
+        score_b = min(growth_per_turn / 2000, 1.0)
+
+        return score_a * 0.7 + score_b * 0.3
+
+    def _create_dialogue_compactor(self) -> DialogueCompactor:
+        """通过 memory_manager 工厂创建 DialogueCompactor（10b）。
+
+        Raises:
+            RuntimeError: 未传 memory_manager
+        """
+        if self.memory_manager is None:
+            raise RuntimeError(
+                "无法创建 DialogueCompactor：Runtime 未配置 memory_manager"
+            )
+        return self.memory_manager.create_dialogue_compactor(self.agent_id)
+
+    @property
+    def dialogue_compactor(self) -> Optional[DialogueCompactor]:
+        """当前 agent 的 DialogueCompactor（懒加载）。
+
+        每次访问创建新实例（与 MemoryManager 工厂语义一致，无状态）。
+        """
+        if self.memory_manager is None:
+            return None
+        return self.memory_manager.create_dialogue_compactor(self.agent_id)
