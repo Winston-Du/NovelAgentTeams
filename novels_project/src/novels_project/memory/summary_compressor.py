@@ -48,8 +48,11 @@ class SummaryCompressor:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         # Task 6: _load_existing_blocks_with_recovery()
         logger.info(
-            "[SummaryCompressor] 初始化完成 | storage=%s window=%d max_blocks=%d",
+            "[SummaryCompressor] 初始化完成 | storage=%s window=%d max_blocks=%d "
+            "rule_compress_only=%s has_llm_client=%s has_chapters_dir=%s",
             self.storage_dir, self.config.chapter_window, self.config.max_summary_blocks,
+            self.llm_client is None, self.llm_client is not None,
+            self.chapters_dir is not None,
         )
 
     def add_chapter_summary(
@@ -82,9 +85,25 @@ class SummaryCompressor:
             f"【第{ch_id}章】\n{summary}"
             for ch_id, summary in chapters
         )
+        logger.debug(
+            "[SummaryCompressor] 拼接完成 | combined_len=%d chapters=%d",
+            len(combined), len(chapters),
+        )
 
         # 2. 压缩（Task 5: 规则压缩；Task 6 替换为 LLM 压缩 + 重试）
-        compressed = self._rule_compress(combined)
+        if self.llm_client:
+            logger.info(
+                "[SummaryCompressor] 使用 LLM 压缩 | combined_len=%d",
+                len(combined),
+            )
+            # Task 6: compressed = self._llm_compress_with_retry(combined)
+            compressed = self._rule_compress(combined)  # 临时 fallback
+        else:
+            logger.info(
+                "[SummaryCompressor] LLM 不可用，使用规则压缩 | combined_len=%d",
+                len(combined),
+            )
+            compressed = self._rule_compress(combined)
 
         # 3. 截断
         compressed = self._truncate(compressed, self.config.summary_max_chars)
@@ -123,11 +142,18 @@ class SummaryCompressor:
 
     def _evict_old_blocks(self) -> None:
         """滑窗淘汰：保留最近 max_summary_blocks 个块。"""
+        evicted_count = 0
         while len(self._blocks) > self.config.max_summary_blocks:
             evicted = self._blocks.pop(0)
+            evicted_count += 1
             logger.info(
                 "[SummaryCompressor] 淘汰旧块 | block_id=%s chapters=%d-%d",
                 evicted.block_id, evicted.start_chapter, evicted.end_chapter,
+            )
+        if evicted_count > 0:
+            logger.info(
+                "[SummaryCompressor] 滑窗淘汰完成 | evicted_count=%d remaining=%d",
+                evicted_count, len(self._blocks),
             )
 
     def _truncate(self, text: str, max_len: int) -> str:
@@ -150,6 +176,11 @@ class SummaryCompressor:
         each_side = (max_chars - len(marker)) // 2
         if each_side < 1:
             # 极端情况：max_chars 极小，只截前 max_chars
+            logger.warning(
+                "[SummaryCompressor] _rule_compress max_chars 过小 | "
+                "max_chars=%d each_side=%d, 退化为纯截断",
+                max_chars, each_side,
+            )
             return text[:max_chars]
         return text[:each_side] + marker + text[-each_side:]
 
@@ -179,7 +210,12 @@ class SummaryCompressor:
                 f"\n### {block.block_id} (第 {block.start_chapter}-{block.end_chapter} 章)\n"
                 f"{block.compressed_text}"
             )
-        return "\n".join(parts)
+        result = "\n".join(parts)
+        logger.info(
+            "[SummaryCompressor] 生成注入文本 | blocks=%d total_len=%d",
+            len(self._blocks), len(result),
+        )
+        return result
 
     def get_status(self) -> dict:
         """状态报告（用于监控和 web 端展示）。"""
