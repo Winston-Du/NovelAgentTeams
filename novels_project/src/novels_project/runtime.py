@@ -19,6 +19,7 @@ from .session import (
 from .tool_spec import ToolExecutor, ToolRegistry
 from .usage import UsageTracker
 from .compaction import compact_session
+from .memory.memory_config import MemoryConfig  # 10a: 记忆子系统基础支持
 
 logger = logging.getLogger("novels_project.runtime")
 
@@ -77,6 +78,9 @@ class ConversationRuntime:
         auto_compaction_threshold: int = 100000,
         print_stream: bool = True,
         output_truncation_limit: int = 50000,
+        # === 10a: 记忆子系统基础支持 ===
+        agent_id: str = "main",
+        memory_config: Optional[MemoryConfig] = None,
     ):
         self.session = session
         self.api_client = api_client
@@ -89,6 +93,11 @@ class ConversationRuntime:
         self.print_stream = print_stream
         self.output_truncation_limit = output_truncation_limit
         self.usage_tracker = UsageTracker.from_session(session)
+
+        # === 10a 新增属性 ===
+        self.agent_id = agent_id
+        self.memory_config = memory_config or MemoryConfig()
+        # 注：dialogue_compactor 在 Task 10b 中添加（依赖 DialogueCompactor + MemoryManager）
 
         # Hook system for post-turn processing (replaces monkey-patching)
         self._turn_hooks: list[Callable[[TurnSummary], None]] = []
@@ -324,15 +333,28 @@ class ConversationRuntime:
         return ConversationMessage.assistant(blocks, usage), usage
 
     def _maybe_auto_compact(self) -> Optional[AutoCompactionEvent]:
-        """Check cumulative tokens and compact if over threshold."""
+        """Check cumulative tokens and compact if over threshold.
+
+        10a: 使用 MemoryConfig.dialogue_compression_threshold（比例）作为触发比例。
+        实际触发 token 数 = auto_compaction_threshold * dialogue_compression_threshold。
+        10a 阶段回退到 compact_session（规则压缩），10b 阶段优先使用 dialogue_compactor。
+        """
         estimated_tokens = self.session.total_estimated_tokens()
+        max_tokens = self.auto_compaction_threshold
+
+        # 从 MemoryConfig 读取阈值（10a）
+        threshold = self.memory_config.dialogue_compression_threshold
+        trigger_tokens = int(max_tokens * threshold)
+
         logger.info(
-            "[Runtime] 评估是否需要自动压缩 | est_tokens=%d threshold=%d",
-            estimated_tokens, self.auto_compaction_threshold,
+            "[Runtime] 评估是否需要自动压缩 | est_tokens=%d trigger=%d threshold=%.2f agent=%s",
+            estimated_tokens, trigger_tokens, threshold, self.agent_id,
         )
-        if estimated_tokens < self.auto_compaction_threshold:
+        if estimated_tokens < trigger_tokens:
             return None
 
+        # 10a 阶段：直接使用 compact_session（规则压缩）
+        # 10b 阶段：优先 dialogue_compactor
         result = compact_session(self.session)
         if result.removed_message_count > 0:
             self.session = result.compacted_session
@@ -340,6 +362,9 @@ class ConversationRuntime:
                 "Auto-compaction: %d messages compressed",
                 result.removed_message_count,
             )
+            logger.info(
+                "[Runtime] 对话压缩完成 | agent=%s removed=%d summary_len=%d (10a: rule)",
+                self.agent_id, result.removed_message_count, len(result.summary_text),
+            )
             return AutoCompactionEvent(removed_message_count=result.removed_message_count)
-
         return None
