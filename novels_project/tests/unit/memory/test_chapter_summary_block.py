@@ -181,6 +181,20 @@ def test_post_init_with_empty_compressed_text():
     assert block.char_count == 0
 
 
+def test_post_init_with_empty_text_and_explicit_char_count():
+    """compressed_text 为空但 char_count 显式 > 0：debug 日志分支。"""
+    block = ChapterSummaryBlock(
+        block_id="b",
+        start_chapter=1,
+        end_chapter=10,
+        chapter_count=10,
+        compressed_text="",
+        char_count=100,  # 显式但 text 空
+    )
+    # char_count 保持 100（不会自动修改）
+    assert block.char_count == 100
+
+
 # === 场景 6: 列表字段默认值 ===
 
 def test_key_events_default_to_empty_list():

@@ -6,6 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import List, Optional
+import logging
+
+logger = logging.getLogger("novels_project.memory.chapter_summary_block")
 
 
 @dataclass
@@ -28,7 +31,22 @@ class ChapterSummaryBlock:
     def __post_init__(self) -> None:
         """自动计算 char_count（仅在显式为 0 且 compressed_text 非空时）。"""
         if self.char_count == 0 and self.compressed_text:
+            old = self.char_count
             self.char_count = len(self.compressed_text)
+            logger.info(
+                "[ChapterSummaryBlock] 自动计算 char_count | block_id=%s old=%d new=%d text_len=%d",
+                self.block_id, old, self.char_count, len(self.compressed_text),
+            )
+        elif self.char_count > 0 and self.compressed_text:
+            logger.debug(
+                "[ChapterSummaryBlock] 保留显式 char_count | block_id=%s char_count=%d text_len=%d",
+                self.block_id, self.char_count, len(self.compressed_text),
+            )
+        elif not self.compressed_text:
+            logger.warning(
+                "[ChapterSummaryBlock] compressed_text 为空，char_count 保持 0 | block_id=%s",
+                self.block_id,
+            )
 
     def to_dict(self) -> dict:
         """序列化为字典（用于 JSON 持久化）。"""
@@ -37,6 +55,10 @@ class ChapterSummaryBlock:
     @classmethod
     def from_dict(cls, data: dict) -> "ChapterSummaryBlock":
         """从字典反序列化（用于加载 JSON）。"""
+        logger.info(
+            "[ChapterSummaryBlock] from_dict | block_id=%s start=%s end=%s",
+            data.get("block_id"), data.get("start_chapter"), data.get("end_chapter"),
+        )
         return cls(**data)
 
     @classmethod
@@ -50,11 +72,17 @@ class ChapterSummaryBlock:
         created_at: Optional[str] = None,
     ) -> "ChapterSummaryBlock":
         """工厂方法：自动生成 block_id、chapter_count、created_at。"""
+        block_id = f"block_{start:05d}_{end:05d}"
+        chapter_count = end - start + 1
+        logger.info(
+            "[ChapterSummaryBlock] from_chapters | block_id=%s range=%d-%d count=%d text_len=%d",
+            block_id, start, end, chapter_count, len(compressed_text),
+        )
         return cls(
-            block_id=f"block_{start:05d}_{end:05d}",
+            block_id=block_id,
             start_chapter=start,
             end_chapter=end,
-            chapter_count=end - start + 1,
+            chapter_count=chapter_count,
             compressed_text=compressed_text,
             key_events=list(key_events) if key_events else [],
             character_changes=list(character_changes) if character_changes else [],
