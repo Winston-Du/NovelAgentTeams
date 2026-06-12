@@ -27,6 +27,7 @@ class MemoryConfig:
     preserve_recent_messages: int = 4            # 保留最近 K 条
     dialogue_summary_max_chars: int = 4000       # 对话摘要最大字符（对齐 compaction.py 默认）
     dialogue_context_summary_max_chars: int = 1500  # 对话脉络字段单独字符上限
+    dialogue_compression_max_retries: int = 2     # LLM 压缩重试次数
     dialogue_llm_model: Optional[str] = None     # None=跟随运行时
 
     # === 子 agent 配置 ===
@@ -73,6 +74,11 @@ class MemoryConfig:
                 f"{self.dialogue_context_summary_max_chars} "
                 f"不能超过 dialogue_summary_max_chars="
                 f"{self.dialogue_summary_max_chars}"
+            )
+        if self.dialogue_compression_max_retries < 0 or self.dialogue_compression_max_retries > 5:
+            errors.append(
+                f"dialogue_compression_max_retries="
+                f"{self.dialogue_compression_max_retries} 超出 0-5 范围"
             )
         return errors
 
