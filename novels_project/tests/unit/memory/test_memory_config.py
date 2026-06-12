@@ -19,7 +19,8 @@ def test_default_values():
     assert cfg.summary_max_chars == 2000
     assert cfg.dialogue_compression_threshold == 0.8
     assert cfg.preserve_recent_messages == 4
-    assert cfg.dialogue_summary_max_chars == 3000
+    assert cfg.dialogue_summary_max_chars == 4000
+    assert cfg.dialogue_context_summary_max_chars == 1500
     assert cfg.dialogue_llm_model is None
     assert cfg.subagent_compression_enabled is True
     assert cfg.subagent_max_messages == 30
@@ -90,11 +91,28 @@ def test_validate_preserve_recent_messages_too_low():
     assert any("preserve_recent_messages" in e for e in errors)
 
 
-def test_validate_summary_max_chars_too_low():
-    """summary_max_chars < 500 报错。"""
-    cfg = MemoryConfig(summary_max_chars=100)
+def test_validate_summary_max_chars_too_small():
+    """summary_max_chars < 500 应被拒绝。"""
+    cfg = MemoryConfig(summary_max_chars=499)
     errors = cfg.validate()
     assert any("summary_max_chars" in e for e in errors)
+
+
+def test_validate_dialogue_summary_max_chars_too_small():
+    """dialogue_summary_max_chars < 1000 应被拒绝。"""
+    cfg = MemoryConfig(dialogue_summary_max_chars=500)
+    errors = cfg.validate()
+    assert any("dialogue_summary_max_chars" in e for e in errors)
+
+
+def test_validate_context_summary_exceeds_total():
+    """context_summary > total 应被拒绝。"""
+    cfg = MemoryConfig(
+        dialogue_summary_max_chars=2000,
+        dialogue_context_summary_max_chars=3000,
+    )
+    errors = cfg.validate()
+    assert any("不能超过" in e for e in errors)
 
 
 def test_validate_returns_empty_for_valid_config():
