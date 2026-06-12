@@ -157,7 +157,35 @@ class SiliconFlowEmbeddings:
         return self.embed_documents(text)
 
 
+from ..memory.graph_query import GraphQuery
+
+class LRUCache:
+    """Simple fixed-size LRU cache for graph queries."""
+    def __init__(self, capacity: int = 128):
+        self.capacity = capacity
+        self.cache = {}
+        self.order = []  # keeps keys newest at end
+
+    def get(self, key):
+        if key in self.cache:
+            # move to end
+            self.order.remove(key)
+            self.order.append(key)
+            return self.cache[key]
+        return None
+
+    def set(self, key, value):
+        if key in self.cache:
+            self.order.remove(key)
+        elif len(self.cache) >= self.capacity:
+            # evict oldest
+            oldest = self.order.pop(0)
+            self.cache.pop(oldest, None)
+        self.cache[key] = value
+        self.order.append(key)
+
 class SampleRetrievalEngine:
+
     """样例检索引擎 - 使用 SiliconFlow Embedding API"""
 
     # SiliconFlow 支持的 Embedding 模型及其 token 限制
@@ -235,6 +263,9 @@ class SampleRetrievalEngine:
             # 测试一下 embeddings 是否工作
             _ = self.embeddings.embed_query("测试")
             print(f"✅ Embeddings 初始化成功 (模型: {self.embedding_model_name})")
+            # 初始化 GraphQuery 和 LRU 缓存，用于高效图谱查询
+            self.graph_query = GraphQuery(GraphStore())
+            self.graph_cache = LRUCache(capacity=256)
         except Exception as e:
             print(f"⚠️  Embedding 初始化失败: {e}")
             return
@@ -246,7 +277,7 @@ class SampleRetrievalEngine:
         """初始化或加载已有的向量库"""
         if self.persist_dir.exists() and any(self.persist_dir.iterdir()):
             try:
-                self.vectorstore = Chroma(
+                self.vectorstore = Chroma(persist_directory=str(self.persist_dir), embedding_function=self.embeddings)(
                     persist_directory=str(self.persist_dir),
                     embedding_function=self.embeddings
                 )

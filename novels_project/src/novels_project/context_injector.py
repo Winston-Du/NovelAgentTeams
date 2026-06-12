@@ -168,8 +168,8 @@ class ContextInjector:
             print(f"获取伏笔信息失败: {e}")
         return None
     
-    def inject_context(self, user_input: str) -> str:
-        """自动注入上下文信息"""
+    def inject_context(self, user_input: str, max_context_chars: int = 8000) -> str:
+        """自动注入上下文信息，带长度预算"""
         if not self.enabled:
             logger.info("[ContextInjector] 已禁用，跳过注入")
             return user_input
@@ -179,8 +179,9 @@ class ContextInjector:
             len(user_input) if user_input else 0,
         )
         context_parts = []
+        current_len = 0
 
-        # 1. 提取角色名称并获取角色上下文
+        # 1. 角色上下文（按优先级截断）
         character_names = self.extract_character_names(user_input)
         logger.info(
             "[ContextInjector] 识别到角色 | count=%d names=%s",
@@ -189,7 +190,12 @@ class ContextInjector:
         for name in character_names[:3]:  # 最多处理3个角色
             char_context = self.get_character_context(name)
             if char_context:
+                # 单角色上下文限制
+                char_context = self._truncate_context(char_context, 2000)
+                if current_len + len(char_context) > max_context_chars:
+                    break
                 context_parts.append(char_context)
+                current_len += len(char_context)
                 logger.info(
                     "[ContextInjector] 角色上下文已加入 | name=%s context_len=%d",
                     name, len(char_context),
@@ -197,16 +203,17 @@ class ContextInjector:
             else:
                 logger.info("[ContextInjector] 角色无上下文 | name=%s", name)
 
-        # 2. 获取伏笔信息
-        foreshadow_context = self.get_foreshadowing_context()
-        if foreshadow_context:
-            context_parts.append(foreshadow_context)
-            logger.info(
-                "[ContextInjector] 伏笔上下文已加入 | len=%d",
-                len(foreshadow_context),
-            )
-        else:
-            logger.info("[ContextInjector] 无伏笔上下文")
+        # 2. 伏笔上下文（最低优先级）
+        if current_len < max_context_chars:
+            foreshadow_context = self.get_foreshadowing_context()
+            if foreshadow_context:
+                remaining = max_context_chars - current_len
+                foreshadow_context = self._truncate_context(foreshadow_context, remaining)
+                context_parts.append(foreshadow_context)
+                logger.info(
+                    "[ContextInjector] 伏笔上下文已加入 | len=%d",
+                    len(foreshadow_context),
+                )
 
         # 如果有上下文，添加到用户输入前面
         if context_parts:
@@ -220,6 +227,13 @@ class ContextInjector:
 
         logger.info("[ContextInjector] 注入完成 | 无补充信息")
         return user_input
+
+    def _truncate_context(self, text: str, max_len: int) -> str:
+        """智能截断：保留开头和结尾，中间用省略号"""
+        if len(text) <= max_len:
+            return text
+        half = max_len // 2 - 50
+        return text[:half] + "\n... [内容已截断] ...\n" + text[-half:]
     
     def extract_chapter_summary(self, chapter_text: str) -> str:
         """从章节文本中提取摘要"""
