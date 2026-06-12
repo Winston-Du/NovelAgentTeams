@@ -557,3 +557,165 @@ def test_reload_preserves_dirty_flag(tmp_path):
 
     c2 = SummaryCompressor(config=config, storage_dir=tmp_path)
     assert c2._dirty is False  # 加载时未设置 dirty
+
+
+# ============================================================
+# Task 6 补丁：LLM 压缩实装测试
+# ============================================================
+import sys as _sys
+_sys.path.insert(0, "/Users/Winston/Documents/WorkSpace/NovelAgentTeams/novels_project/src")
+from novels_project.api_client import TextDelta, MessageStop  # noqa: E402
+
+
+def _make_streaming_llm(text: str):
+    """构造返回纯文本的 mock LLM。"""
+    class MockLLM:
+        default_model = "mock-llm"
+
+        def stream(self, request=None, print_stream: bool = False):
+            del request, print_stream  # mock 接口签名
+            return [TextDelta(text=text), MessageStop()]
+    return MockLLM()
+
+
+def _make_failing_llm(error: Exception):
+    """构造抛异常的 mock LLM。"""
+    class MockLLM:
+        default_model = "mock-llm"
+        def stream(self, request=None, print_stream: bool = False):
+            del request, print_stream
+            raise error
+    return MockLLM()
+
+
+def _make_empty_llm():
+    """构造返回空事件的 mock LLM。"""
+    class MockLLM:
+        default_model = "mock-llm"
+        def stream(self, request=None, print_stream: bool = False):
+            del request, print_stream
+            return [MessageStop()]
+    return MockLLM()
+
+
+def test_llm_compress_success(tmp_path):
+    """LLM 压缩成功：返回 LLM 输出文本。"""
+    config = MemoryConfig(chapter_window=10, summary_max_chars=2000)
+    llm_text = "这是 LLM 压缩后的剧情摘要。保留了主要人物行动线和关键转折。"
+    compressor = SummaryCompressor(
+        config=config, storage_dir=tmp_path,
+        llm_client=_make_streaming_llm(llm_text),
+    )
+
+    result = compressor._llm_compress_with_retry("100章内容" * 100)
+    assert result == llm_text
+
+
+def test_llm_compress_uses_rule_fallback_on_failure(tmp_path):
+    """LLM 失败时降级为规则压缩。"""
+    config = MemoryConfig(chapter_window=10, summary_max_chars=2000)
+    compressor = SummaryCompressor(
+        config=config, storage_dir=tmp_path,
+        llm_client=_make_failing_llm(ConnectionError("network down")),
+    )
+
+    # _llm_or_rule_compress 应降级为 _rule_compress 而非抛异常
+    text = "1" * 5000  # 超长文本触发截断
+    result = compressor._llm_or_rule_compress(text)
+    assert isinstance(result, str)
+    assert len(result) <= 2000
+
+
+def test_llm_compress_uses_rule_fallback_on_empty_response(tmp_path):
+    """LLM 返回空时降级为规则压缩。"""
+    config = MemoryConfig(chapter_window=10, summary_max_chars=2000)
+    compressor = SummaryCompressor(
+        config=config, storage_dir=tmp_path,
+        llm_client=_make_empty_llm(),
+    )
+
+    text = "1" * 5000
+    result = compressor._llm_or_rule_compress(text)
+    assert isinstance(result, str)
+    assert len(result) <= 2000
+
+
+def test_llm_or_rule_compress_with_no_llm_client(tmp_path):
+    """无 LLM 客户端时直接走规则压缩。"""
+    config = MemoryConfig(chapter_window=10, summary_max_chars=2000)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path, llm_client=None)
+
+    text = "1" * 5000
+    result = compressor._llm_or_rule_compress(text)
+    assert isinstance(result, str)
+    assert len(result) <= 2000
+
+
+def test_llm_compress_with_retry_eventually_succeeds(tmp_path):
+    """LLM 第一次失败、第二次成功。"""
+    call_count = {"n": 0}
+    text = "LLM 压缩输出"
+
+    class FlakeyLLM:
+        default_model = "mock-llm"
+        def stream(self, request=None, print_stream: bool = False):
+            del request, print_stream
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ConnectionError("transient")
+            return [TextDelta(text=text), MessageStop()]
+
+    config = MemoryConfig(chapter_window=10, summary_max_chars=2000)
+    # 用 monkeypatch 把 sleep 加速
+    compressor = SummaryCompressor(
+        config=config, storage_dir=tmp_path, llm_client=FlakeyLLM(),
+    )
+
+    # 把 time.sleep 替换为 noop
+    import time
+    original_sleep = time.sleep
+    time.sleep = lambda s: None
+    try:
+        result = compressor._llm_compress_with_retry("content" * 50)
+    finally:
+        time.sleep = original_sleep
+
+    assert result == text
+    assert call_count["n"] == 2  # 第一次失败，第二次成功
+
+
+def test_trigger_compression_uses_llm_when_available(tmp_path, caplog):
+    """_trigger_compression 优先使用 LLM（在 chapter_window 达到时）。"""
+    import logging
+    caplog.set_level(logging.INFO, logger="novels_project.memory.summary_compressor")
+    config = MemoryConfig(chapter_window=3, summary_max_chars=2000)
+    llm_text = "LLM 压缩后的输出"
+    compressor = SummaryCompressor(
+        config=config, storage_dir=tmp_path,
+        llm_client=_make_streaming_llm(llm_text),
+    )
+    compressor.add_chapter_summary(1, "1")
+    compressor.add_chapter_summary(2, "2")
+    block = compressor.add_chapter_summary(3, "3")  # 触发压缩
+
+    assert block is not None
+    assert block.compressed_text == llm_text
+    # 验证日志中包含 "使用 LLM 压缩"
+    assert any("使用 LLM 压缩" in rec.message for rec in caplog.records)
+
+
+def test_extract_text_from_events_filters_non_text(tmp_path):
+    """_extract_text_from_events 只取 TextDelta。"""
+    from novels_project.api_client import ToolUseEvent, UsageEvent
+
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    events = [
+        TextDelta(text="Hello "),
+        ToolUseEvent(id="t1", name="search", input={}),  # 跳过
+        TextDelta(text="World"),
+        UsageEvent(usage={}),  # 跳过
+        MessageStop(),  # 跳过
+    ]
+    result = compressor._extract_text_from_events(events)
+    assert result == "Hello World"

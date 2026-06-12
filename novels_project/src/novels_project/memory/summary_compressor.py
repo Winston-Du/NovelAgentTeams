@@ -3,20 +3,22 @@
 工作流：
 1. add_chapter_summary 累加到 accumulator
 2. 累积到 chapter_window 时触发 _trigger_compression
-3. _rule_compress 规则压缩（Task 5）；Task 6 升级为 LLM 压缩
+3. _llm_or_rule_compress：LLM 优先（带重试），失败降级为 _rule_compress
 4. 滑窗淘汰（超过 max_blocks 时）
 5. 持久化到 storage_dir（Task 6 实现）
 
 Task 5 范围：累加 + 触发 + 滑窗 + 规则压缩 + get_blocks_for_injection
 Task 6 范围：persist() + _load_existing_blocks_with_recovery() + _recover_block() + LLM 压缩
+Task 6 补丁：_llm_or_rule_compress + _llm_compress_with_retry + _llm_compress_raw + _extract_text_from_events
 """
 from __future__ import annotations
 import json
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Any, Callable
+from typing import Optional, Any, Callable, List
 
 import logging
 
@@ -25,6 +27,23 @@ from .chapter_summary_block import ChapterSummaryBlock
 from .compression_exceptions import BlockRecoveryError
 
 logger = logging.getLogger("novels_project.memory.summary_compressor")
+
+
+# 章节压缩 prompt：要求 LLM 输出纯文本（非 JSON）
+CHAPTER_COMPRESSION_PROMPT = """你是小说剧情压缩专家。请将以下 {chapter_window} 章的剧情摘要压缩到 {max_chars} 字符以内。
+
+要求：
+1. 保留主要人物行动线
+2. 保留关键剧情转折
+3. 保留设定变化（境界/关系/位置等）
+4. 保留伏笔与悬念
+5. 保留章节间因果链
+
+输出格式：纯文本，无标题无列表无 JSON。
+
+【剧情内容】
+{combined_text}
+"""
 
 
 class SummaryCompressor:
@@ -94,20 +113,8 @@ class SummaryCompressor:
             len(combined), len(chapters),
         )
 
-        # 2. 压缩（Task 5: 规则压缩；Task 6 替换为 LLM 压缩 + 重试）
-        if self.llm_client:
-            logger.info(
-                "[SummaryCompressor] 使用 LLM 压缩 | combined_len=%d",
-                len(combined),
-            )
-            # Task 6: compressed = self._llm_compress_with_retry(combined)
-            compressed = self._rule_compress(combined)  # 临时 fallback
-        else:
-            logger.info(
-                "[SummaryCompressor] LLM 不可用，使用规则压缩 | combined_len=%d",
-                len(combined),
-            )
-            compressed = self._rule_compress(combined)
+        # 2. 压缩（LLM 优先 + 规则 fallback）
+        compressed = self._llm_or_rule_compress(combined)
 
         # 3. 截断
         compressed = self._truncate(compressed, self.config.summary_max_chars)
@@ -188,6 +195,145 @@ class SummaryCompressor:
             )
             return text[:max_chars]
         return text[:each_side] + marker + text[-each_side:]
+
+    # === Task 6 补丁：LLM 压缩实装 ===
+
+    def _llm_or_rule_compress(self, combined: str) -> str:
+        """LLM 压缩 + 规则 fallback。
+
+        - 有 LLM：调用 LLM，失败时降级为 _rule_compress（不抛异常）
+        - 无 LLM：直接走 _rule_compress
+        """
+        if not self.llm_client:
+            logger.info(
+                "[SummaryCompressor] LLM 不可用，使用规则压缩 | combined_len=%d",
+                len(combined),
+            )
+            return self._rule_compress(combined)
+
+        logger.info(
+            "[SummaryCompressor] 使用 LLM 压缩 | combined_len=%d",
+            len(combined),
+        )
+        try:
+            compressed = self._llm_compress_with_retry(combined)
+            logger.info(
+                "[SummaryCompressor] LLM 压缩完成 | output_len=%d",
+                len(compressed),
+            )
+            return compressed
+        except Exception as e:
+            logger.warning(
+                "[SummaryCompressor] LLM 压缩失败，降级为规则压缩 | "
+                "error=%s: %s",
+                type(e).__name__, e,
+            )
+            return self._rule_compress(combined)
+
+    def _llm_compress_with_retry(self, combined: str) -> str:
+        """LLM 压缩 + 指数退避重试。
+
+        重试次数从 MemoryConfig 读取（若缺失则用 2 次）。
+        """
+        max_retries = getattr(self.config, "dialogue_compression_max_retries", 2)
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(
+                    "[SummaryCompressor] LLM 压缩尝试 | attempt=%d/%d combined_len=%d",
+                    attempt, max_retries, len(combined),
+                )
+                raw_text = self._llm_compress_raw(combined)
+                logger.info(
+                    "[SummaryCompressor] LLM 响应成功 | attempt=%d text_len=%d",
+                    attempt, len(raw_text),
+                )
+                return raw_text
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "[SummaryCompressor] LLM 压缩失败 | attempt=%d/%d error=%s: %s",
+                    attempt, max_retries, type(e).__name__, e,
+                )
+                if attempt < max_retries:
+                    sleep_sec = 2 ** attempt
+                    logger.info(
+                        "[SummaryCompressor] 等待重试 | sleep=%.1fs",
+                        sleep_sec,
+                    )
+                    time.sleep(sleep_sec)
+        # 重试耗尽：抛异常，由 _llm_or_rule_compress 捕获并降级
+        raise RuntimeError(
+            f"LLM 压缩失败，重试 {max_retries} 次后放弃: {last_error}"
+        )
+
+    def _llm_compress_raw(self, combined: str) -> str:
+        """调用 LLM 流式接口，提取完整文本。"""
+        if not self.llm_client:
+            raise RuntimeError("无 LLM 客户端")
+
+        from ..api_client import ApiRequest  # noqa: F401
+        del ApiRequest  # 用于类型提示
+
+        request = self._build_chapter_compress_request(combined)
+        logger.debug(
+            "[SummaryCompressor] _llm_compress_raw | model=%s max_tokens=%d",
+            request.model, request.max_tokens,
+        )
+
+        try:
+            events = self.llm_client.stream(request, print_stream=False) \
+                if hasattr(self.llm_client, "stream") else []
+            logger.debug(
+                "[SummaryCompressor] LLM stream 返回 | event_count=%d",
+                len(events),
+            )
+        except Exception as e:
+            logger.warning(
+                "[SummaryCompressor] LLM stream 异常 | error=%s: %s",
+                type(e).__name__, e,
+            )
+            raise
+
+        full_text = self._extract_text_from_events(events)
+        if not full_text.strip():
+            logger.warning(
+                "[SummaryCompressor] LLM 响应为空 | events=%d",
+                len(events),
+            )
+            raise RuntimeError("LLM 响应为空")
+        return full_text
+
+    def _extract_text_from_events(self, events: list) -> str:
+        """从 events 列表中提取完整文本（仅 TextDelta）。"""
+        from ..api_client import TextDelta
+        chunks: List[str] = []
+        for event in events:
+            if isinstance(event, TextDelta):
+                chunks.append(event.text)
+        full_text = "".join(chunks)
+        logger.debug(
+            "[SummaryCompressor] _extract_text_from_events | chunks=%d total_len=%d",
+            len(chunks), len(full_text),
+        )
+        return full_text
+
+    def _build_chapter_compress_request(self, combined: str):
+        """构造章节压缩 ApiRequest。"""
+        from ..api_client import ApiRequest
+        prompt = CHAPTER_COMPRESSION_PROMPT.format(
+            chapter_window=self.config.chapter_window,
+            max_chars=self.config.summary_max_chars,
+            combined_text=combined,
+        )
+        return ApiRequest(
+            system_prompt=prompt,
+            messages=[],
+            tools=[],
+            model=getattr(self.llm_client, "default_model", "")
+            if self.llm_client else "",
+            max_tokens=4096,
+        )
 
     def _extract_metadata(self, text: str) -> tuple[list[str], list[str]]:
         """从压缩文本提取关键事件和人物变化（规则方法）。"""
