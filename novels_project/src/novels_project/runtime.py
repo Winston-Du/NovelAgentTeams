@@ -355,6 +355,10 @@ class ConversationRuntime:
 
         # 10a 阶段：直接使用 compact_session（规则压缩）
         # 10b 阶段：优先 dialogue_compactor
+        logger.info(
+            "[Runtime] 调用压缩接口 | agent=%s backend=rule compactor=None",
+            self.agent_id,
+        )
         result = compact_session(self.session)
         if result.removed_message_count > 0:
             self.session = result.compacted_session
