@@ -190,7 +190,8 @@ def test_get_status_after_compression(tmp_compressor):
     status = tmp_compressor.get_status()
     assert status["total_blocks"] == 1
     assert status["accumulator_size"] == 0
-    assert status["is_dirty"] is True
+    # persist() 在 _trigger_compression 中已调用，dirty 已被清
+    assert status["is_dirty"] is False
     assert status["blocks"][0]["block_id"] == "block_00001_00010"
 
 
@@ -223,3 +224,336 @@ def test_init_without_chapters_dir(tmp_path):
     config = MemoryConfig()
     compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
     assert compressor.chapters_dir is None
+
+
+# ============================================================
+# Task 6: 持久化与恢复
+# ============================================================
+
+import json
+
+
+def _create_chapter_file(chapters_dir, chapter_id: int, content: str = None):
+    """辅助：创建 chapter_{id}_final.md 文件。"""
+    if content is None:
+        content = f"第 {chapter_id} 章内容\n\n" + ("x" * 100)
+    path = chapters_dir / f"chapter_{chapter_id}_final.md"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+# === 场景 1: persist() 基本持久化 ===
+
+def test_persist_writes_block_files(tmp_path):
+    """persist() 应为每个块写一个 JSON 文件。"""
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        compressor.add_chapter_summary(i, f"第{i}章摘要")
+
+    # 应该写 1 个块文件 + index.json
+    block_files = list(tmp_path.glob("block_*.json"))
+    assert len(block_files) == 1
+    assert (tmp_path / "index.json").exists()
+
+
+def test_persist_writes_valid_json(tmp_path):
+    """块 JSON 应能被 json.load 解析。"""
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        compressor.add_chapter_summary(i, f"第{i}章")
+
+    block_path = tmp_path / "block_00001_00010.json"
+    data = json.loads(block_path.read_text(encoding="utf-8"))
+    assert data["block_id"] == "block_00001_00010"
+    assert data["start_chapter"] == 1
+    assert data["end_chapter"] == 10
+    assert data["chapter_count"] == 10
+
+
+def test_persist_writes_index(tmp_path):
+    """index.json 应包含所有块的 block_id 列表。"""
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for batch in range(3):
+        for j in range(10):
+            chapter_id = batch * 10 + j + 1
+            compressor.add_chapter_summary(chapter_id, f"第{chapter_id}章")
+
+    index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    assert "blocks" in index
+    assert len(index["blocks"]) == 3
+    assert "block_00001_00010" in index["blocks"]
+    assert "block_00011_00020" in index["blocks"]
+    assert "block_00021_00030" in index["blocks"]
+
+
+def test_persist_skips_when_not_dirty(tmp_path):
+    """_dirty=False 时 persist() 不应写文件（无操作）。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    # 未触发压缩，_dirty=False
+    compressor.persist()
+    assert not (tmp_path / "index.json").exists()
+    assert list(tmp_path.glob("block_*.json")) == []
+
+
+def test_persist_clears_dirty_flag(tmp_path):
+    """persist() 后 _dirty 应被置为 False。"""
+    config = MemoryConfig(chapter_window=10)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        compressor.add_chapter_summary(i, f"第{i}章")
+    assert compressor._dirty is False  # persist() 在 _trigger_compression 中已调用
+
+
+# === 场景 2: 启动加载已有块 ===
+
+def test_load_existing_blocks_on_init(tmp_path):
+    """初始化时自动加载已有块文件。"""
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    # 第一次：写 1 个块
+    c1 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        c1.add_chapter_summary(i, f"第{i}章")
+
+    # 第二次：新建 compressor，验证加载
+    c2 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert len(c2._blocks) == 1
+    assert c2._blocks[0].block_id == "block_00001_00010"
+
+
+def test_load_existing_blocks_preserves_metadata(tmp_path):
+    """加载时应保留块的元数据（key_events, character_changes）。"""
+    config = MemoryConfig(chapter_window=10)  # 显式 window=10 触发压缩
+    c1 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        c1.add_chapter_summary(i, f"第{i}章击败了敌人")
+    original_events = c1._blocks[0].key_events
+
+    c2 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert c2._blocks[0].key_events == original_events
+
+
+def test_load_existing_blocks_skips_missing_files(tmp_path):
+    """index.json 引用了不存在的块文件时应跳过（不抛异常）。"""
+    import json as _json
+    (tmp_path / "index.json").write_text(
+        _json.dumps({"blocks": ["block_00001_00010", "block_00011_00020"]}, ensure_ascii=False),
+        encoding="utf-8"
+    )
+    # 只创建其中一个块文件
+    valid = tmp_path / "block_00011_00020.json"
+    valid.write_text(
+        _json.dumps({"block_id": "block_00011_00020", "start_chapter": 11,
+                     "end_chapter": 20, "chapter_count": 10, "compressed_text": "x"}),
+        encoding="utf-8"
+    )
+
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    # 只加载存在的块
+    assert len(compressor._blocks) == 1
+    assert compressor._blocks[0].block_id == "block_00011_00020"
+
+
+def test_load_with_empty_storage(tmp_path):
+    """空 storage_dir 不应报错。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert compressor._blocks == []
+
+
+def test_load_with_corrupted_index_skips_gracefully(tmp_path):
+    """损坏的 index.json 不应阻塞启动。"""
+    config = MemoryConfig()
+    # 写一个损坏的 index.json
+    (tmp_path / "index.json").write_text("{not valid json", encoding="utf-8")
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert compressor._blocks == []
+
+
+# === 场景 3: 损坏块文件恢复 ===
+
+def test_corrupted_block_recovers_from_chapter_files(tmp_path):
+    """块 JSON 损坏时应从章节文件自动恢复。"""
+    chapters_dir = tmp_path / "chapters"
+    chapters_dir.mkdir()
+    for i in range(1, 11):
+        _create_chapter_file(chapters_dir, i, f"第 {i} 章内容 " * 20)
+
+    storage_dir = tmp_path / "blocks"
+    storage_dir.mkdir()
+    # 写一个损坏的块文件 + 损坏的 index.json
+    (storage_dir / "block_00001_00010.json").write_text(
+        '{"block_id": "block_00001_00010", "compress',  # 截断
+        encoding="utf-8"
+    )
+    (storage_dir / "index.json").write_text(
+        json.dumps({"blocks": ["block_00001_00010"]}, ensure_ascii=False),
+        encoding="utf-8"
+    )
+
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    compressor = SummaryCompressor(
+        config=config, storage_dir=storage_dir, chapters_dir=chapters_dir,
+    )
+    # 块已从章节文件恢复
+    assert len(compressor._blocks) == 1
+    assert compressor._blocks[0].start_chapter == 1
+    assert compressor._blocks[0].end_chapter == 10
+    assert "recovered" in compressor._blocks[0].created_at
+
+    # 损坏文件应被备份
+    backup = storage_dir / "block_00001_00010.corrupted.json"
+    assert backup.exists()
+
+
+def test_corrupted_block_no_chapter_files_raises(tmp_path):
+    """块损坏且章节文件缺失时应抛 BlockRecoveryError。"""
+    storage_dir = tmp_path / "blocks"
+    storage_dir.mkdir()
+    (storage_dir / "block_00001_00010.json").write_text("{not valid", encoding="utf-8")
+    (storage_dir / "index.json").write_text(
+        json.dumps({"blocks": ["block_00001_00010"]}, ensure_ascii=False),
+        encoding="utf-8"
+    )
+
+    # chapters_dir 存在但没有章节文件
+    chapters_dir = tmp_path / "chapters"
+    chapters_dir.mkdir()
+
+    config = MemoryConfig()
+    # 由于 _load_existing_blocks_with_recovery 内部会捕获 + log，
+    # 损坏块无法恢复时该块会被跳过
+    compressor = SummaryCompressor(
+        config=config, storage_dir=storage_dir, chapters_dir=chapters_dir,
+    )
+    assert compressor._blocks == []  # 损坏块被跳过
+
+
+def test_recovery_skips_invalid_block_id_format(tmp_path):
+    """block_id 格式不正确的块文件应被跳过。"""
+    storage_dir = tmp_path / "blocks"
+    storage_dir.mkdir()
+    # 写一个正常但有奇怪文件名（block_id）的 JSON
+    weird = storage_dir / "block_abc_xyz.json"
+    weird.write_text(
+        json.dumps({"block_id": "block_abc_xyz", "compressed_text": "x"}),
+        encoding="utf-8"
+    )
+    (storage_dir / "index.json").write_text(
+        json.dumps({"blocks": ["block_abc_xyz"]}, ensure_ascii=False),
+        encoding="utf-8"
+    )
+
+    chapters_dir = tmp_path / "chapters"
+    chapters_dir.mkdir()
+
+    config = MemoryConfig()
+    # 解析失败应被捕获并跳过
+    compressor = SummaryCompressor(
+        config=config, storage_dir=storage_dir, chapters_dir=chapters_dir,
+    )
+    assert compressor._blocks == []
+
+
+# === 场景 4: _extract_chapter_summary ===
+
+def test_extract_chapter_summary_returns_first_and_last_paragraph(tmp_path):
+    """应从章节文本中提取首段和末段。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    text = "首段内容\n\n中间段1\n\n中间段2\n\n末段内容"
+    summary = compressor._extract_chapter_summary(text)
+    assert "首段内容" in summary
+    assert "末段内容" in summary
+    assert "中间段" not in summary
+
+
+def test_extract_chapter_summary_single_paragraph(tmp_path):
+    """单段文本应原样返回。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    text = "唯一一段"
+    summary = compressor._extract_chapter_summary(text)
+    assert summary == "唯一一段"
+
+
+def test_extract_chapter_summary_two_paragraphs(tmp_path):
+    """恰好 2 段文本应两段都用。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    text = "第一段\n\n第二段"
+    summary = compressor._extract_chapter_summary(text)
+    assert "第一段" in summary
+    assert "第二段" in summary
+
+
+def test_extract_chapter_summary_empty(tmp_path):
+    """空文本应返回空字符串。"""
+    config = MemoryConfig()
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert compressor._extract_chapter_summary("") == ""
+
+
+# === 场景 5: 完整流程: persist → reload → recovery ===
+
+def test_full_persist_reload_recovery_cycle(tmp_path):
+    """完整流程：压缩 → persist → 损坏 → 重新加载 → 自动恢复。"""
+    chapters_dir = tmp_path / "chapters"
+    chapters_dir.mkdir()
+    for i in range(1, 21):
+        _create_chapter_file(
+            chapters_dir, i, f"第 {i} 章\n\n{i*2}个段落。" * 5
+        )
+
+    storage_dir = tmp_path / "blocks"
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+
+    # 第 1 阶段：生成 2 个块
+    c1 = SummaryCompressor(
+        config=config, storage_dir=storage_dir, chapters_dir=chapters_dir,
+    )
+    for i in range(1, 21):
+        c1.add_chapter_summary(i, f"第{i}章摘要")
+    assert len(c1._blocks) == 2
+
+    # 第 2 阶段：手动损坏其中一个块
+    target = storage_dir / "block_00001_00010.json"
+    target.write_text("garbage content", encoding="utf-8")
+
+    # 第 3 阶段：重新加载 → 损坏块被恢复
+    c2 = SummaryCompressor(
+        config=config, storage_dir=storage_dir, chapters_dir=chapters_dir,
+    )
+    assert len(c2._blocks) == 2
+    # 检查恢复的块
+    block1 = next(b for b in c2._blocks if b.start_chapter == 1)
+    assert "recovered" in block1.created_at
+
+
+# === 场景 6: 与 Task 5 集成（确保持久化不影响基础累加）===
+
+def test_persist_does_not_block_add_chapter(tmp_path):
+    """persist() 不应阻塞 add_chapter_summary 的正常累加。"""
+    config = MemoryConfig(chapter_window=10, max_summary_blocks=3)
+    compressor = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 6):
+        result = compressor.add_chapter_summary(i, f"第{i}章")
+        assert result is None
+        assert len(compressor._accumulator) == i
+
+
+def test_reload_preserves_dirty_flag(tmp_path):
+    """重新加载后 _dirty 应为 False（无新压缩）。"""
+    config = MemoryConfig()
+    c1 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    for i in range(1, 11):
+        c1.add_chapter_summary(i, f"第{i}章")
+    # persist 已清 dirty
+    assert c1._dirty is False
+
+    c2 = SummaryCompressor(config=config, storage_dir=tmp_path)
+    assert c2._dirty is False  # 加载时未设置 dirty
