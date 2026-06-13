@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ from pydantic import BaseModel
 from ..memory.graph_store import GraphStore
 from ..memory.graph_query import GraphQuery
 from ..project_config import get_project_root
+
+logger = logging.getLogger("novels_project.api.memory")
 
 router = APIRouter()
 
@@ -27,12 +30,30 @@ def _get_graph_path() -> str:
 
 
 def _init_graph():
-    """初始化图谱实例。"""
+    """初始化图谱实例。
+
+    设计要点：
+    1. **原子性**：如果 ``load()`` 失败，必须回退到空图，**不能**留下半初始化状态
+       （_graph_store 已设但 _graph_query 未设 → 后续端点 500）。
+    2. **同时检查两个全局变量**：之前的实现仅检查 ``_graph_store``，若 load 失败
+       抛出异常，则 ``_graph_query`` 永远为 None，触发 AttributeError。
+    3. **损坏文件容忍**：若 graph/knowledge_graph.json 存在但格式损坏（KeyError
+       'edges' / ValueError），打印警告并继续使用空图，避免端点 500。
+    """
     global _graph_store, _graph_query
-    if _graph_store is None:
-        graph_path = _get_graph_path()
+    if _graph_store is None or _graph_query is None:
         _graph_store = GraphStore()
-        _graph_store.load(graph_path)
+        graph_path = _get_graph_path()
+        try:
+            _graph_store.load(graph_path)
+        except (KeyError, ValueError, OSError) as e:
+            # 损坏/缺失/格式错误的图文件：回退到空图。
+            # 关键：必须继续设置 _graph_query，否则后续端点会 NoneType 崩溃。
+            logger.warning(
+                "[api/memory] 图谱文件加载失败，使用空图回退 | path=%s error=%s: %s",
+                graph_path, type(e).__name__, e,
+            )
+            _graph_store = GraphStore()  # 重置为空图
         _graph_query = GraphQuery(_graph_store)
 
 

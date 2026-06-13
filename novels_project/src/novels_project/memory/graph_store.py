@@ -403,17 +403,27 @@ class GraphStore:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def load(self, filepath: str) -> bool:
-        """从 JSON 文件加载图。"""
+        """从 JSON 文件加载图。
+
+        Returns:
+            True: 加载成功
+            False: 文件不存在 / 为空 / 格式损坏（graph 保持上次状态）
+        """
         path = Path(filepath)
         if not path.exists():
             return False
 
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            if not content:
-                return False
-            data = json.loads(content)
-        self._graph = nx.node_link_graph(data)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if not content:
+                    return False
+                data = json.loads(content)
+            self._graph = nx.node_link_graph(data)
+        except (KeyError, ValueError, json.JSONDecodeError, OSError):
+            # 损坏/格式错误的图文件：保留现有 graph 状态，不抛异常。
+            # 调用方（_init_graph）会捕获并回退到空图。
+            return False
         return True
 
     @classmethod
