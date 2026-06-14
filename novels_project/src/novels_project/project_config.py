@@ -156,7 +156,7 @@ def get_project_root() -> Path:
     return _PROJECT_ROOT
 
 
-def set_project_root(path: Optional[Path] = None):
+def set_project_root(path: Optional[Path] = None) -> None:
     """
     设置项目根目录。
 

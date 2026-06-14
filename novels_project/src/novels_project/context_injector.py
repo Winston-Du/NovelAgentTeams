@@ -45,10 +45,26 @@ def get_retrieval_engine():
 
 
 class ContextInjector:
-    """上下文自动注入器"""
-    
-    def __init__(self):
+    """上下文自动注入器
+
+    注入优先级（由高到低，受 max_context_chars 预算约束）：
+    1. 角色上下文（按名字，单角色 ≤ 2000 字，最多 3 个）
+    2. 伏笔上下文（未完成伏笔列表）
+    3. 历史摘要块（来自 MemoryManager，按 agent 隔离）
+    """
+
+    def __init__(self, memory_manager: Optional["MemoryManager"] = None):
+        """初始化上下文注入器。
+
+        参数：
+        - memory_manager: 记忆系统门面，可选；为 None 时不注入历史摘要块
+        """
         self.enabled = True
+        self.memory_manager = memory_manager
+        logger.info(
+            "[ContextInjector] 初始化 | has_memory_manager=%s",
+            memory_manager is not None,
+        )
     
     def extract_character_names(self, text: str) -> List[str]:
         """从文本中提取可能的角色名称
@@ -168,15 +184,33 @@ class ContextInjector:
             print(f"获取伏笔信息失败: {e}")
         return None
     
-    def inject_context(self, user_input: str, max_context_chars: int = 8000) -> str:
-        """自动注入上下文信息，带长度预算"""
+    def inject_context(
+        self,
+        user_input: str,
+        max_context_chars: int = 8000,
+        agent_id: str = "main",
+    ) -> str:
+        """自动注入上下文信息，带长度预算
+
+        参数：
+        - user_input: 用户原始输入
+        - max_context_chars: 注入上下文最大字符数（包含所有三类）
+        - agent_id: agent 标识（用于从 MemoryManager 获取对应历史摘要块）
+
+        注入顺序（按优先级）：
+        1. 角色上下文
+        2. 伏笔上下文
+        3. 历史摘要块（仅当 memory_manager 注入时）
+        """
         if not self.enabled:
             logger.info("[ContextInjector] 已禁用，跳过注入")
             return user_input
 
         logger.info(
-            "[ContextInjector] 开始注入 | input_len=%d",
+            "[ContextInjector] 开始注入 | input_len=%d agent_id=%s max_context_chars=%d",
             len(user_input) if user_input else 0,
+            agent_id,
+            max_context_chars,
         )
         context_parts = []
         current_len = 0
@@ -203,25 +237,52 @@ class ContextInjector:
             else:
                 logger.info("[ContextInjector] 角色无上下文 | name=%s", name)
 
-        # 2. 伏笔上下文（最低优先级）
+        # 2. 伏笔上下文（次低优先级）
         if current_len < max_context_chars:
             foreshadow_context = self.get_foreshadowing_context()
             if foreshadow_context:
                 remaining = max_context_chars - current_len
                 foreshadow_context = self._truncate_context(foreshadow_context, remaining)
                 context_parts.append(foreshadow_context)
+                current_len += len(foreshadow_context)
                 logger.info(
                     "[ContextInjector] 伏笔上下文已加入 | len=%d",
                     len(foreshadow_context),
                 )
+
+        # 3. 历史摘要块（Task 12 新增：最低优先级，剩余预算）
+        if current_len < max_context_chars and self.memory_manager is not None:
+            remaining = max_context_chars - current_len
+            try:
+                summary_text = self.memory_manager.get_summary_for_injection(agent_id)
+            except Exception as e:
+                # 摘要获取失败不阻塞注入，记录后跳过
+                logger.warning(
+                    "[ContextInjector] 获取历史摘要块失败，跳过 | agent=%s error=%s",
+                    agent_id, e, exc_info=True,
+                )
+                summary_text = ""
+            if summary_text:
+                summary_text = self._truncate_context(summary_text, remaining)
+                context_parts.append(summary_text)
+                current_len += len(summary_text)
+                logger.info(
+                    "[ContextInjector] 注入历史摘要块 | agent=%s summary_len=%d",
+                    agent_id, len(summary_text),
+                )
+        elif current_len < max_context_chars:
+            logger.info(
+                "[ContextInjector] 未配置 memory_manager，跳过历史摘要块注入 | agent=%s",
+                agent_id,
+            )
 
         # 如果有上下文，添加到用户输入前面
         if context_parts:
             context_str = "\n\n".join(context_parts)
             enriched = f"【上下文信息】\n{context_str}\n\n【用户输入】\n{user_input}"
             logger.info(
-                "[ContextInjector] 注入完成 | total_context_len=%d final_len=%d",
-                len(context_str), len(enriched),
+                "[ContextInjector] 注入完成 | parts=%d total_context_len=%d final_len=%d",
+                len(context_parts), len(context_str), len(enriched),
             )
             return enriched
 
@@ -274,8 +335,18 @@ class ContextInjector:
         """将章节摘要添加到向量库"""
         start_time = time.time()
         logger.info("向量库存储开始 | chapter_id=%s", chapter_id)
-        
+
         try:
+            # 步骤0: 优雅降级检查 - langchain 不可用时直接跳过（INFO 而非 ERROR）
+            try:
+                from langchain.schema import Document  # noqa: F401
+            except ImportError:
+                logger.info(
+                    "向量库存储跳过 | reason=langchain 未安装 | chapter_id=%s",
+                    chapter_id,
+                )
+                return False
+
             # 步骤1: 提取摘要
             summary = self.extract_chapter_summary(chapter_text)
             logger.debug("摘要提取成功 | 长度=%d", len(summary))

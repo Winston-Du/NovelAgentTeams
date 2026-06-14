@@ -33,8 +33,66 @@ from .agents import (
 from .system_prompt import build_main_agent_system_prompt
 from .memory.integrator import GraphMemoryIntegrator
 from .memory.sync_manager import AutoSyncConfig
+from .memory.memory_manager import MemoryManager
+from .memory.memory_config import MemoryConfig
 
 logger = logging.getLogger("novels_project.cli")
+
+
+def _build_graph_integrator(
+    project_root: Path,
+    auto_sync_config: Optional[AutoSyncConfig],
+    force_build_graph: bool,
+) -> Optional[GraphMemoryIntegrator]:
+    """初始化图谱记忆（失败时非致命降级）。"""
+    try:
+        auto_sync_config = auto_sync_config or AutoSyncConfig(
+            enabled=True,
+            event_triggered=True,
+            threshold_chapters=1,
+            max_retries=3,
+            retry_delay_seconds=10,
+            persist_on_sync=True,
+        )
+        graph_integrator = GraphMemoryIntegrator(
+            project_root=project_root,
+            auto_sync_config=auto_sync_config,
+        )
+        init_result = graph_integrator.initialize(force_full_sync=force_build_graph)
+        logger.info("[图谱记忆] 已初始化 | 节点=%s 边=%s", init_result["node_count"], init_result["edge_count"])
+        return graph_integrator
+    except Exception as e:
+        logger.warning("[图谱记忆] 初始化失败（非致命）: %s", e)
+        return None
+
+
+def _build_memory_manager(
+    project_root: Path,
+    api_client: OpenAICompatibleClient,
+    graph_integrator: Optional[GraphMemoryIntegrator],
+) -> Optional[MemoryManager]:
+    """初始化 MemoryManager（失败时非致命降级）。"""
+    config_path = project_root / "config" / "memory_config.yaml"
+    if not config_path.exists():
+        logger.warning(
+            "[MemoryManager] 未找到 memory_config.yaml，使用默认配置 | config_path=%s",
+            config_path,
+        )
+    try:
+        memory_manager = MemoryManager(
+            project_root=project_root,
+            config_path=config_path,
+            llm_client=api_client,
+            graph_integrator=graph_integrator,
+        )
+        logger.info(
+            "[MemoryManager] CLI wiring 成功 | config_path=%s",
+            config_path,
+        )
+        return memory_manager
+    except Exception as e:
+        logger.warning("[MemoryManager] 初始化失败（非致命）: %s", e)
+        return None
 
 
 def _build_runtime(
@@ -42,10 +100,10 @@ def _build_runtime(
     session: Optional[Session] = None,
     auto_sync_config: Optional[AutoSyncConfig] = None,
     force_build_graph: bool = False,
-) -> tuple[ConversationRuntime, str, Optional[GraphMemoryIntegrator]]:
+) -> tuple[ConversationRuntime, str, Optional[GraphMemoryIntegrator], Optional[MemoryManager]]:
     """
     Bootstrap the full runtime stack.
-    Returns (runtime, session_id, graph_integrator).
+    Returns (runtime, session_id, graph_integrator, memory_manager).
     """
     # Load config from environment
     default_model = model or os.getenv("MODEL_NAME", "gemini-3-pro")
@@ -67,8 +125,21 @@ def _build_runtime(
     # Layer 3: Tool Registry
     builtin_registry = build_builtin_tool_registry()
 
+    # === Task 13 wiring: 初始化 MemoryManager（失败时非致命降级） ===
+    project_root = get_project_root()
+    graph_integrator = _build_graph_integrator(
+        project_root=project_root,
+        auto_sync_config=auto_sync_config,
+        force_build_graph=force_build_graph,
+    )
+    memory_manager = _build_memory_manager(
+        project_root=project_root,
+        api_client=api_client,
+        graph_integrator=graph_integrator,
+    )
+
     # Agent Runner (sub-agent execution)
-    agent_runner = AgentRunner(api_client=api_client)
+    agent_runner = AgentRunner(api_client=api_client, memory_manager=memory_manager)
     agent_runner.set_builtin_registry(builtin_registry)
 
     # Register agent tools + utility tools in main registry
@@ -104,31 +175,17 @@ def _build_runtime(
         tool_registry=main_registry,
         system_prompt=system_prompt,
         model=default_model,
+        # === Task 13 wiring: 主 agent 显式 memory 参数 ===
+        agent_id="main",
+        memory_config=memory_manager.get_memory_config("main") if memory_manager else None,
+        memory_manager=memory_manager,
+        auto_compaction_threshold=(
+            memory_manager.get_memory_config("main").auto_compaction_threshold
+            if memory_manager else 100000
+        ),
     )
 
-    # Graph Memory Integration
-    project_root = get_project_root()
-    graph_integrator = None
-
-    try:
-        auto_sync_config = auto_sync_config or AutoSyncConfig(
-            enabled=True,
-            event_triggered=True,
-            threshold_chapters=1,
-            max_retries=3,
-            retry_delay_seconds=10,
-            persist_on_sync=True,
-        )
-        graph_integrator = GraphMemoryIntegrator(
-            project_root=project_root,
-            auto_sync_config=auto_sync_config,
-        )
-        init_result = graph_integrator.initialize(force_full_sync=force_build_graph)
-        logger.info("[图谱记忆] 已初始化 | 节点=%s 边=%s", init_result["node_count"], init_result["edge_count"])
-    except Exception as e:
-        logger.warning("[图谱记忆] 初始化失败（非致命）: %s", e)
-
-    return runtime, session_id, graph_integrator
+    return runtime, session_id, graph_integrator, memory_manager
 
 
 def _run_repl(
@@ -423,7 +480,7 @@ def main():
     if args.no_graph:
         auto_sync_config = AutoSyncConfig(enabled=False, event_triggered=False)
 
-    runtime, session_id, graph_integrator = _build_runtime(
+    runtime, session_id, graph_integrator, _memory_manager = _build_runtime(
         model=args.model,
         session=session,
         auto_sync_config=auto_sync_config,

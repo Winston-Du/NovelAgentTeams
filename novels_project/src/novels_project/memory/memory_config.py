@@ -33,6 +33,7 @@ class MemoryConfig:
     # === 子 agent 配置 ===
     subagent_compression_enabled: bool = True
     subagent_max_messages: int = 30     # 子 agent 独立阈值
+    auto_compaction_threshold: int = 100000  # 对话上下文自动压缩阈值（tokens）
 
     def validate(self) -> list[str]:
         """配置校验，返回错误列表（空=通过）。"""
@@ -79,6 +80,11 @@ class MemoryConfig:
             errors.append(
                 f"dialogue_compression_max_retries="
                 f"{self.dialogue_compression_max_retries} 超出 0-5 范围"
+            )
+        if self.auto_compaction_threshold < 10000 or self.auto_compaction_threshold > 500000:
+            errors.append(
+                f"auto_compaction_threshold={self.auto_compaction_threshold} "
+                "超出 10000-500000 范围"
             )
         return errors
 

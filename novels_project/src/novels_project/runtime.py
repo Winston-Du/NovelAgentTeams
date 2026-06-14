@@ -36,6 +36,20 @@ def _get_context_injector():
     return _context_injector
 
 
+def _build_injector_for_runtime(runtime: "ConversationRuntime"):
+    """为 Runtime 构建合适的 ContextInjector。
+
+    规则：
+    - runtime.memory_manager 存在时：构造带 memory_manager 的本地 injector
+      （使历史摘要块按 agent 隔离地注入到 prompt）
+    - 否则：回退到全局 injector（向后兼容）
+    """
+    if runtime.memory_manager is not None:
+        from .context_injector import ContextInjector
+        return ContextInjector(memory_manager=runtime.memory_manager)
+    return _get_context_injector()
+
+
 @dataclass
 class AutoCompactionEvent:
     removed_message_count: int
@@ -124,15 +138,25 @@ class ConversationRuntime:
         自动注入上下文信息：
         1. 从图谱中查询角色信息（境界、喜好等）
         2. 查询未完成的伏笔
-        3. 查询人物历史信息保证一致性
+        3. （Task 12）从 MemoryManager 获取历史摘要块
+
+        注入策略：
+        - 若 runtime 持有 memory_manager：构造带 memory_manager 的本地 injector
+          并按 self.agent_id 获取对应 agent 的历史摘要
+        - 否则：使用全局 injector（向后兼容旧调用）
         """
         try:
-            injector = _get_context_injector()
+            injector = _build_injector_for_runtime(self)
             logger.info(
-                "[Runtime] 上下文注入开始 | input_len=%d",
+                "[Runtime] 上下文注入开始 | input_len=%d agent_id=%s "
+                "has_memory_manager=%s",
                 len(user_input) if user_input else 0,
+                self.agent_id,
+                self.memory_manager is not None,
             )
-            enriched = injector.inject_context(user_input)
+            enriched = injector.inject_context(
+                user_input, agent_id=self.agent_id,
+            )
             if enriched != user_input:
                 logger.info(
                     "[Runtime] 上下文注入完成 | enriched_len=%d delta=%d",

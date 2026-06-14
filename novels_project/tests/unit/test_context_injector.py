@@ -81,13 +81,23 @@ class TestChapterSummaryExtraction(unittest.TestCase):
 
 class TestVectorDbStorage(unittest.TestCase):
     """向量库存储测试"""
-    
+
     def setUp(self):
         self.injector = ContextInjector()
+
+    def _langchain_available(self) -> bool:
+        """检测 langchain 是否可用（不可用时优雅跳过）"""
+        try:
+            import langchain.schema  # noqa: F401
+            return True
+        except ImportError:
+            return False
     
     @patch('novels_project.context_injector.get_retrieval_engine')
     def test_add_chapter_to_vector_db_success(self, mock_get_engine):
         """测试成功添加章节到向量库"""
+        if not self._langchain_available():
+            self.skipTest("langchain 未安装，跳过向量库存储测试")
         # 创建模拟的检索引擎
         mock_engine = MagicMock()
         mock_engine._initialized = True
@@ -149,6 +159,8 @@ class TestVectorDbStorage(unittest.TestCase):
     @patch('novels_project.context_injector.get_retrieval_engine')
     def test_add_chapter_to_vector_db_persist_failure(self, mock_get_engine):
         """测试持久化失败时的处理（不应影响整体结果）"""
+        if not self._langchain_available():
+            self.skipTest("langchain 未安装，跳过向量库存储测试")
         mock_engine = MagicMock()
         mock_engine._initialized = True
         mock_engine.vectorstore = MagicMock()
@@ -165,6 +177,8 @@ class TestVectorDbStorage(unittest.TestCase):
     @patch('novels_project.context_injector.get_retrieval_engine')
     def test_add_chapter_to_vector_db_no_chapter_id(self, mock_get_engine):
         """测试不提供chapter_id时的处理"""
+        if not self._langchain_available():
+            self.skipTest("langchain 未安装，跳过向量库存储测试")
         mock_engine = MagicMock()
         mock_engine._initialized = True
         mock_engine.vectorstore = MagicMock()

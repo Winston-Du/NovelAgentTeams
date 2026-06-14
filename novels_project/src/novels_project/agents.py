@@ -11,6 +11,7 @@ Model names can be overridden via environment variables:
 import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
@@ -22,6 +23,8 @@ from .system_prompt import build_sub_agent_system_prompt
 if TYPE_CHECKING:
     from .api_client import OpenAICompatibleClient
     from .runtime import ConversationRuntime
+    from .memory.memory_manager import MemoryManager
+    from .memory.memory_config import MemoryConfig
 
 logger = logging.getLogger("novels_project.agents")
 
@@ -35,6 +38,9 @@ class AgentDefinition:
     description: str             # Tool description for the orchestrator LLM
     allowed_tools: list[str]     # Tools this sub-agent can use
     input_schema: dict           # JSON Schema for the tool input
+    # === Task 13: 可配置运行时参数 ===
+    max_iterations: int = 20            # 子 agent 最大迭代次数
+    auto_compaction_threshold: int = 100000  # 子 agent dialogue 压缩触发阈值（tokens）
 
 
 # === 4 Agent Definitions ===
@@ -61,6 +67,9 @@ CHIEF_EDITOR = AgentDefinition(
         },
         "required": ["prompt"]
     },
+    # === Task 13: 总编单次大纲生成，少量工具调用，15 次足够 ===
+    max_iterations=15,
+    auto_compaction_threshold=50000,  # 总编典型量 5K-20K，50K 留出压缩触发空间
 )
 
 CHARACTER_DESIGNER = AgentDefinition(
@@ -83,6 +92,9 @@ CHARACTER_DESIGNER = AgentDefinition(
         },
         "required": ["prompt"]
     },
+    # === Task 13: 人物策划单次输出，10 次迭代足够 ===
+    max_iterations=10,
+    auto_compaction_threshold=30000,  # 人物策划典型量 5K-15K
 )
 
 PLOT_WRITER = AgentDefinition(
@@ -113,6 +125,9 @@ PLOT_WRITER = AgentDefinition(
         },
         "required": ["prompt"]
     },
+    # === Task 13: 撰写员需要检索样例+多次迭代，30 次较充裕 ===
+    max_iterations=30,
+    auto_compaction_threshold=100000,  # 撰写员典型量 30K-60K，保留到 100K 以减少误触
 )
 
 PROOFREADER = AgentDefinition(
@@ -146,6 +161,9 @@ PROOFREADER = AgentDefinition(
         },
         "required": ["prompt"]
     },
+    # === Task 13: 校对单次校验+反馈记录，10 次足够 ===
+    max_iterations=10,
+    auto_compaction_threshold=40000,  # 校对典型量 10K-30K
 )
 
 ALL_AGENTS = [CHIEF_EDITOR, CHARACTER_DESIGNER, PLOT_WRITER, PROOFREADER]
@@ -156,17 +174,29 @@ class AgentRunner:
     Runs sub-agents as tool calls (Agent-as-Tool pattern).
 
     Each sub-agent gets its own ConversationRuntime with:
-    - Independent Session (empty)
+    - Independent Session (empty, unique uuid)
     - Shared ApiClient
     - SubAgentToolExecutor (restricted tools)
     - Sub-agent-specific system prompt
     - Sub-agent-specific model
+    - Independent MemoryConfig (resolved from memory_manager per agent_id)
+    - Shared MemoryManager (for cross-agent persistence)
     """
 
-    def __init__(self, api_client: "OpenAICompatibleClient"):
+    def __init__(
+        self,
+        api_client: "OpenAICompatibleClient",
+        memory_manager: Optional["MemoryManager"] = None,
+    ):
         self.api_client = api_client
+        self.memory_manager = memory_manager
         self._agent_defs = {a.name: a for a in ALL_AGENTS}
         self._builtin_registry: Optional[ToolRegistry] = None
+        logger.info(
+            "[AgentRunner] 初始化 | has_memory_manager=%s agent_count=%d",
+            memory_manager is not None,
+            len(self._agent_defs),
+        )
 
     def set_builtin_registry(self, registry: ToolRegistry):
         """Set the built-in tool registry for sub-agents that need tools."""
@@ -179,6 +209,12 @@ class AgentRunner:
         """
         Execute a sub-agent: create a fresh ConversationRuntime,
         run one turn with the provided prompt, return the text output.
+
+        Task 13 - 销毁模式（destroy mode）:
+        1. 每次创建新 Session 并赋 uuid（永不复用，零状态泄漏）
+        2. 拉取该 agent 独立的 MemoryConfig（按 agent_def.name 路由）
+        3. 子 agent 内部允许 dialogue 压缩（auto_compaction_threshold 来自 agent_def）
+        4. 兜底：messages 超过 subagent_max_messages 时主动压缩
         """
         from .runtime import ConversationRuntime
 
@@ -202,26 +238,82 @@ class AgentRunner:
             allowed_tools=set(agent_def.allowed_tools),
         )
 
-        # Create independent runtime for this sub-agent
+        # === Task 13: 销毁模式 - 每次创建新 Session + uuid session_id ===
+        sub_session = Session()
+        sub_session.id = str(uuid.uuid4())  # 永不复用
+        logger.info(
+            "[AgentRunner] 子 agent session 创建 | agent=%s session_id=%s",
+            agent_def.name, sub_session.id,
+        )
+
+        # === Task 13: 拉取该 agent 独立的 MemoryConfig（agent 覆盖 + global fallback） ===
+        memory_config: Optional["MemoryConfig"] = None
+        subagent_compression_enabled = True  # 默认开启
+        if self.memory_manager is not None:
+            memory_config = self.memory_manager.get_memory_config(agent_def.name)
+            subagent_compression_enabled = memory_config.subagent_compression_enabled
+            if not subagent_compression_enabled:
+                logger.info(
+                    "[AgentRunner] 子 agent 压缩已禁用（按 config 标志）| "
+                    "agent=%s session_id=%s",
+                    agent_def.name, sub_session.id,
+                )
+
+        # === Task 13: 创建子 runtime，传入 agent_id + memory_config + memory_manager ===
+        # 关键：始终传入 memory_config（保留 subagent_compression_enabled 标志用于路由）
+        # Runtime 会用 memory_config 中的阈值做压缩判断
         runtime = ConversationRuntime(
-            session=Session(),
+            session=sub_session,
             api_client=self.api_client,
             tool_executor=sub_executor,
             tool_registry=sub_registry,
             system_prompt=system_prompt,
             model=agent_def.model,
-            max_iterations=20,
+            # === 决策 2: 来自 agent_def 的可配置参数 ===
+            max_iterations=agent_def.max_iterations,
+            auto_compaction_threshold=agent_def.auto_compaction_threshold,
+            # === 决策 1: 保持 print_stream=True ===
             print_stream=True,
+            # === Task 12 链路 + Task 13 ===
+            agent_id=agent_def.name,
+            memory_config=memory_config,
+            memory_manager=self.memory_manager,
         )
 
         # Run the agent
-        logger.info("[%s] 开始执行 | model=%s", agent_def.display_name, agent_def.model)
+        logger.info(
+            "[%s] 开始执行 | model=%s max_iterations=%d "
+            "auto_compaction_threshold=%d has_memory_manager=%s "
+            "subagent_compression_enabled=%s",
+            agent_def.display_name, agent_def.model,
+            agent_def.max_iterations, agent_def.auto_compaction_threshold,
+            self.memory_manager is not None,
+            subagent_compression_enabled,
+        )
         if agent_def.allowed_tools:
-            logger.debug("[%s] Tools available: %d", agent_def.display_name, len(agent_def.allowed_tools))
+            logger.debug(
+                "[%s] Tools available: %d",
+                agent_def.display_name, len(agent_def.allowed_tools),
+            )
 
         summary = runtime.run_turn(prompt)
 
-        logger.info("[%s] 完成 | iterations=%d", agent_def.display_name, summary.iterations)
+        # === Task 13: 子 agent 兜底压缩（按消息数）- run_turn 之后检查 ===
+        if subagent_compression_enabled and memory_config is not None:
+            threshold = memory_config.subagent_max_messages
+            actual_messages = len(runtime.session.messages)
+            if actual_messages > threshold:
+                logger.info(
+                    "[AgentRunner] 子 agent session 兜底压缩 | agent=%s "
+                    "messages=%d threshold=%d",
+                    agent_def.name, actual_messages, threshold,
+                )
+                runtime._maybe_auto_compact()
+
+        logger.info(
+            "[%s] 完成 | iterations=%d session_id=%s",
+            agent_def.display_name, summary.iterations, sub_session.id,
+        )
 
         # Extract final text from the last assistant message
         result_text = summary.get_final_text()
