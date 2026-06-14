@@ -246,7 +246,10 @@ class MemoryManager:
         return text
 
     def reload_config(self) -> None:
-        """热重载：清空 SummaryCompressor 缓存 + 重新加载 YAML。"""
+        """热重载：清空 SummaryCompressor 缓存 + 重新加载 YAML。
+
+        YAML 格式错误或文件丢失时回退到全默认配置，不抛异常。
+        """
         # === [11] reload_config 日志 ===
         old_cache_size = len(self._summary_compressors)
         logger.info(
@@ -255,7 +258,17 @@ class MemoryManager:
             old_cache_size, self.config_path,
         )
         self._summary_compressors.clear()
-        self._load_config()
+        try:
+            self._load_config()
+        except Exception as exc:
+            logger.warning(
+                "[MemoryManager] reload_config YAML 加载失败，回退默认配置 | "
+                "error=%s",
+                exc,
+            )
+            self.config_bundle = MemoryConfigBundle(
+                global_config=MemoryConfig(),
+            )
         logger.info(
             "[MemoryManager] reload_config 完成 | new_cache_size=%d",
             len(self._summary_compressors),
