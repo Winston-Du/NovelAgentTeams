@@ -112,6 +112,24 @@ def test_reload_missing_config_file_preserves_old_config(tmp_path, config_path):
     assert mgr.get_memory_config("plot_writer").max_summary_blocks == 8
 
 
+def test_reload_missing_config_preserves_compressor_cache(tmp_path, config_path):
+    """配置文件不存在时 reload_config 不清空 SummaryCompressor 缓存。"""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("global: {}", encoding="utf-8")
+    mgr = MemoryManager(project_root=tmp_path, config_path=str(config_path))
+
+    # 创建一个 compressor 实例
+    c1 = mgr.get_summary_compressor("main")
+
+    # 删除配置文件后 reload
+    config_path.unlink()
+    mgr.reload_config()
+
+    # 缓存未被清空，同一个实例被返回
+    c2 = mgr.get_summary_compressor("main")
+    assert c1 is c2
+
+
 # ---------------------------------------------------------------------------
 # 场景 4: 损坏的 YAML 不影响旧配置（回退到默认值）
 # ---------------------------------------------------------------------------
@@ -129,3 +147,19 @@ def test_reload_corrupted_yaml_preserves_old_config(config_path, mgr):
 
     # plot_writer 的 agent 配置仍然有效（不会退化为 global 默认）
     assert mgr.get_memory_config("plot_writer").max_summary_blocks == 5
+
+
+def test_reload_corrupted_yaml_preserves_compressor_cache(config_path, mgr):
+    """YAML 格式错误时 reload_config 不清空 SummaryCompressor 缓存。"""
+    config_path.write_text("global: {}", encoding="utf-8")
+    mgr.reload_config()  # 用合法配置初始化
+
+    c1 = mgr.get_summary_compressor("main")
+
+    # 写入损坏的 YAML
+    config_path.write_text("{{invalid yaml: [}", encoding="utf-8")
+    mgr.reload_config()
+
+    # 缓存未被清空，同一个实例被返回
+    c2 = mgr.get_summary_compressor("main")
+    assert c1 is c2

@@ -258,9 +258,8 @@ class MemoryManager:
             "old_config_path=%s",
             old_cache_size, self.config_path,
         )
-        self._summary_compressors.clear()
 
-        # 配置文件被删除或不存在时，直接保留旧配置
+        # 配置文件被删除或不存在时，直接保留旧配置（含缓存）
         if not self.config_path.exists():
             logger.warning(
                 "[MemoryManager] reload_config 配置文件不存在，保留原有配置 | "
@@ -271,6 +270,8 @@ class MemoryManager:
 
         try:
             self._load_config()
+            # 加载成功后才清空缓存（避免加载失败时丢失累积数据）
+            self._summary_compressors.clear()
         except Exception as exc:
             logger.warning(
                 "[MemoryManager] reload_config YAML 加载失败，保留原有配置 | "
