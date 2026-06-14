@@ -35,6 +35,13 @@ BACKEND_PORT=8000
 FRONTEND_PORT=5174
 BACKEND_HOST="127.0.0.1"
 
+# 前端启动策略：auto | true | false
+# - auto：npm/node 齐全时启动前端，缺失时以后端模式继续启动
+# - true：强制启动前端，npm/node 缺失则失败
+# - false：只启动后端
+START_FRONTEND="${START_FRONTEND:-auto}"
+FRONTEND_ENABLED="auto"
+
 LOG_DIR="/tmp/novels-startup"
 BACKEND_LOG="${LOG_DIR}/backend.log"
 FRONTEND_LOG="${LOG_DIR}/frontend.log"
@@ -139,9 +146,10 @@ init() {
 check_tools() {
     print_header "1/5  工具检查"
     local missing_tools=()
+    local missing_frontend_tools=()
 
-    # 检查 Python
-    if command -v /opt/anaconda3/bin/python >/dev/null 2>&1; then
+    # 检查 Python（后端必需）
+    if [ -x "/opt/anaconda3/bin/python" ]; then
         PYTHON=/opt/anaconda3/bin/python
         log_success "Python: $($PYTHON --version 2>&1) @ ${PYTHON}"
     elif command -v python3 >/dev/null 2>&1; then
@@ -151,46 +159,77 @@ check_tools() {
         missing_tools+=("python3")
     fi
 
-    # 检查 npm（必须在 anaconda bin 中查找）
+    # 检查 npm（仅前端必需）
     if [ -x "/opt/anaconda3/bin/npm" ]; then
         NPM=/opt/anaconda3/bin/npm
         log_success "npm: $($NPM --version) @ ${NPM}"
     elif command -v npm >/dev/null 2>&1; then
         NPM=npm
-        log_warn "npm: $($NPM --version) @ ${NPM}"
+        log_success "npm: $($NPM --version) @ ${NPM}"
     else
-        missing_tools+=("npm")
+        NPM=""
+        missing_frontend_tools+=("npm")
     fi
 
-    # 检查 node
+    # 检查 node（仅前端必需）
     if [ -x "/opt/anaconda3/bin/node" ]; then
         NODE=/opt/anaconda3/bin/node
         log_success "node: $($NODE --version) @ ${NODE}"
     elif command -v node >/dev/null 2>&1; then
         NODE=node
-        log_warn "node: $($NODE --version) @ ${NODE}"
+        log_success "node: $($NODE --version) @ ${NODE}"
     else
-        missing_tools+=("node")
+        NODE=""
+        missing_frontend_tools+=("node")
     fi
 
-    # 检查 git
+    # 检查 git（可选，用于版本管理）
     if command -v git >/dev/null 2>&1; then
         log_success "git: $(git --version)"
     else
-        missing_tools+=("git")
+        log_warn "git: 未找到（不影响启动，仅影响版本管理）"
     fi
 
     if [ ${#missing_tools[@]} -ne 0 ]; then
-        log_error "缺少必要工具: ${missing_tools[*]}"
+        log_error "缺少后端必需工具: ${missing_tools[*]}"
         echo ""
         echo "  解决方案:"
-        echo "    1. 加载 conda: source /opt/anaconda3/etc/profile.d/conda.sh && conda activate base"
-        echo "    2. 安装 Node.js: brew install node 或访问 https://nodejs.org/"
-        echo "    3. 安装 git: xcode-select --install"
+        echo "    1. 安装 Python 3.9+：brew install python 或访问 https://www.python.org/"
+        echo "    2. 或在 conda 环境中启动：source /opt/anaconda3/etc/profile.d/conda.sh && conda activate base"
         return 1
     fi
 
-    export PATH="/opt/anaconda3/bin:/opt/anaconda3/pkgs/nodejs-*/bin:${PATH}"
+    # 根据启动策略决定是否启用前端
+    case "${START_FRONTEND}" in
+        0|false|False|FALSE|no|No|NO)
+            FRONTEND_ENABLED=false
+            log_warn "前端启动已禁用（START_FRONTEND=${START_FRONTEND}），将以后端模式启动"
+            ;;
+        1|true|True|TRUE|yes|Yes|YES)
+            if [ ${#missing_frontend_tools[@]} -ne 0 ]; then
+                log_error "前端工具缺失: ${missing_frontend_tools[*]}"
+                echo ""
+                echo "  解决方案:"
+                echo "    1. 加载 conda: source /opt/anaconda3/etc/profile.d/conda.sh && conda activate base"
+                echo "    2. 安装 Node.js: brew install node 或访问 https://nodejs.org/"
+                return 1
+            fi
+            FRONTEND_ENABLED=true
+            ;;
+        *)
+            if [ ${#missing_frontend_tools[@]} -ne 0 ]; then
+                FRONTEND_ENABLED=false
+                log_warn "前端工具缺失: ${missing_frontend_tools[*]}，将以后端模式启动"
+                log_warn "如需完整前后端启动，请安装 npm/node 后重试，或设置 START_FRONTEND=true 强制检查"
+            else
+                FRONTEND_ENABLED=true
+            fi
+            ;;
+    esac
+
+    if [ -d "/opt/anaconda3/bin" ]; then
+        export PATH="/opt/anaconda3/bin:${PATH}"
+    fi
     return 0
 }
 
@@ -229,6 +268,11 @@ check_env_vars() {
 check_ports() {
     print_header "3/5  端口检查"
 
+    if ! command -v lsof >/dev/null 2>&1; then
+        log_warn "lsof 未安装，跳过端口占用检查"
+        return 0
+    fi
+
     for port in "${BACKEND_PORT}" "${FRONTEND_PORT}"; do
         if lsof -iTCP:${port} -sTCP:LISTEN -P -n >/dev/null 2>&1; then
             local pid
@@ -237,14 +281,38 @@ check_ports() {
 
             # 尝试识别是什么进程
             local proc_name
-            proc_name=$(ps -p ${pid} -o command= 2>/dev/null | head -c 80)
+            proc_name=$(ps -p "${pid}" -o command= 2>/dev/null | head -c 120)
+            local proc_uid
+            proc_uid=$(ps -p "${pid}" -o uid= 2>/dev/null | awk '{print $1}')
+            local current_uid
+            current_uid=$(id -u)
             log_info "  占用进程: ${proc_name}"
+
+            # 只允许清理当前用户且明确属于本项目的进程，避免误杀系统服务
+            if [ "${proc_uid}" != "${current_uid}" ]; then
+                log_error "端口 ${port} 被其他用户占用，已跳过自动清理"
+                return 1
+            fi
+            if [[ "${proc_name}" != *"novels"* && "${proc_name}" != *"vite"* && "${proc_name}" != *"npm run dev" && "${proc_name}" != *"node"* ]]; then
+                log_error "端口 ${port} 被非本项目进程占用，已跳过自动清理"
+                return 1
+            fi
 
             read -p "  是否自动清理并继续？[y/N] " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 log_info "清理端口 ${port}..."
-                lsof -tiTCP:${port} -sTCP:LISTEN -P -n 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+                kill -TERM "${pid}" 2>/dev/null || true
+                for _ in {1..10}; do
+                    if ! kill -0 "${pid}" 2>/dev/null; then
+                        break
+                    fi
+                    sleep 0.1
+                done
+                if kill -0 "${pid}" 2>/dev/null; then
+                    log_warn "进程未优雅退出，发送 SIGKILL: PID=${pid}"
+                    kill -KILL "${pid}" 2>/dev/null || true
+                fi
                 sleep 1
                 log_success "端口 ${port} 已释放"
             else
@@ -269,15 +337,21 @@ check_dependencies() {
     else
         log_warn "novels_project 未安装，尝试自动安装..."
         cd "${NOVELS_PROJECT_DIR}"
-        if /opt/anaconda3/bin/pip install -e . 2>&1 | tee -a "${STARTUP_LOG}" | tail -n 5; then
+        if ${PYTHON} -m pip install -e . 2>&1 | tee -a "${STARTUP_LOG}" | tail -n 5; then
             log_success "novels_project 已安装"
         else
             log_error "novels_project 安装失败"
             echo "  解决方案:"
             echo "    cd ${NOVELS_PROJECT_DIR}"
-            echo "    pip install -e ."
+            echo "    ${PYTHON} -m pip install -e ."
             return 1
         fi
+    fi
+
+    # 前端依赖仅在启用前端时检查
+    if [ "${FRONTEND_ENABLED}" != "true" ]; then
+        log_warn "前端已禁用或不可用，跳过 frontend/node_modules 检查"
+        return 0
     fi
 
     # 检查前端 node_modules
@@ -309,7 +383,7 @@ start_backend() {
         log_error "后端命令未配置，请先安装 novels_project"
         echo "  解决方案:"
         echo "    cd ${NOVELS_PROJECT_DIR}"
-        echo "    pip install -e ."
+        echo "    ${PYTHON} -m pip install -e ."
         return 2
     fi
 
@@ -337,28 +411,33 @@ start_backend() {
         fi
     done
 
-    # 启动前端
-    log_info "启动前端 (端口 ${FRONTEND_PORT})..."
-    cd "${FRONTEND_DIR}"
-    nohup ${NPM} run dev -- --port ${FRONTEND_PORT} --host 0.0.0.0 > "${FRONTEND_LOG}" 2>&1 &
-    FRONTEND_PID=$!
-    log_info "前端 PID: ${FRONTEND_PID}"
+    # 前端启动（仅当启用时）
+    if [ "${FRONTEND_ENABLED}" = "true" ]; then
+        log_info "启动前端 (端口 ${FRONTEND_PORT})..."
+        cd "${FRONTEND_DIR}"
+        nohup ${NPM} run dev -- --port ${FRONTEND_PORT} --host 0.0.0.0 > "${FRONTEND_LOG}" 2>&1 &
+        FRONTEND_PID=$!
+        log_info "前端 PID: ${FRONTEND_PID}"
 
-    # 等待前端就绪（最多 20 秒）
-    log_info "等待前端就绪..."
-    for i in {1..20}; do
-        sleep 1
-        if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${FRONTEND_PORT}/" 2>/dev/null | grep -q "200"; then
-            log_success "前端就绪 (${i}s)"
-            break
-        fi
-        if [ $i -eq 20 ]; then
-            log_warn "前端启动超时（可能仍在编译中）"
-            echo "  日志（最后 10 行）:"
-            tail -n 10 "${FRONTEND_LOG}" | sed 's/^/    /'
-            return 3
-        fi
-    done
+        # 等待前端就绪（最多 20 秒）
+        log_info "等待前端就绪..."
+        for i in {1..20}; do
+            sleep 1
+            if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${FRONTEND_PORT}/" 2>/dev/null | grep -q "200"; then
+                log_success "前端就绪 (${i}s)"
+                break
+            fi
+            if [ $i -eq 20 ]; then
+                log_warn "前端启动超时（可能仍在编译中）"
+                echo "  日志（最后 10 行）:"
+                tail -n 10 "${FRONTEND_LOG}" | sed 's/^/    /'
+                return 3
+            fi
+        done
+    else
+        log_warn "前端已禁用，跳过前端启动"
+        FRONTEND_PID=""
+    fi
 
     return 0
 }
@@ -372,10 +451,18 @@ print_dashboard() {
     echo -e "${GREEN}┌────────────────────────────────────────────────────────┐${NC}"
     echo -e "${GREEN}│${NC}             ${CYAN}NovelAgentTeams 服务面板${NC}                  ${GREEN}│${NC}"
     echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${GREEN}│${NC}  ${YELLOW}前端 (Frontend)${NC}                                      ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    地址: ${CYAN}http://localhost:${FRONTEND_PORT}${NC}                       ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    局域网: ${CYAN}http://$(ipconfig getifaddr en0 2>/dev/null || echo 'N/A'):${FRONTEND_PORT}${NC}        ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    PID:  ${FRONTEND_PID:-N/A}                                            ${GREEN}│${NC}"
+    
+    if [ "${FRONTEND_ENABLED}" = "true" ]; then
+        echo -e "${GREEN}│${NC}  ${YELLOW}前端 (Frontend)${NC}                                      ${GREEN}│${NC}"
+        echo -e "${GREEN}│${NC}    地址: ${CYAN}http://localhost:${FRONTEND_PORT}${NC}                       ${GREEN}│${NC}"
+        echo -e "${GREEN}│${NC}    局域网: ${CYAN}http://$(ipconfig getifaddr en0 2>/dev/null || echo 'N/A'):${FRONTEND_PORT}${NC}        ${GREEN}│${NC}"
+        echo -e "${GREEN}│${NC}    PID:  ${FRONTEND_PID:-N/A}                                            ${GREEN}│${NC}"
+        echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
+    else
+        echo -e "${GREEN}│${NC}  ${YELLOW}前端 (Frontend)${NC}  ${RED}已禁用 (后端模式)${NC}                              ${GREEN}│${NC}"
+        echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
+    fi
+    
     echo -e "${GREEN}│${NC}  ${YELLOW}后端 (Backend)${NC}                                       ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    地址: ${CYAN}http://127.0.0.1:${BACKEND_PORT}${NC}                        ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    （前端已通过后端代理，访问此地址即会转发到 http://localhost:${FRONTEND_PORT}）${GREEN}│${NC}"
@@ -384,7 +471,9 @@ print_dashboard() {
     echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
     echo -e "${GREEN}│${NC}  ${YELLOW}日志文件${NC}                                            ${GREEN}│${NC}"
     echo -e "${GREEN}│${NC}    后端: ${LOG_DIR}/backend.log                          ${GREEN}│${NC}"
-    echo -e "${GREEN}│${NC}    前端: ${LOG_DIR}/frontend.log                         ${GREEN}│${NC}"
+    if [ "${FRONTEND_ENABLED}" = "true" ]; then
+        echo -e "${GREEN}│${NC}    前端: ${LOG_DIR}/frontend.log                         ${GREEN}│${NC}"
+    fi
     echo -e "${GREEN}│${NC}    启动: ${LOG_DIR}/startup.log                          ${GREEN}│${NC}"
     echo -e "${GREEN}├────────────────────────────────────────────────────────┤${NC}"
     echo -e "${GREEN}│${NC}  ${YELLOW}停止服务${NC}                                            ${GREEN}│${NC}"

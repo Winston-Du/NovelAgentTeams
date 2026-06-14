@@ -111,6 +111,16 @@ def create_app() -> FastAPI:
             response = await call_next(request)
             if response.status_code != 404:
                 return response
+
+            # 过滤不应转发到前端服务器的头
+            hop_by_hop = {b"host", b"transfer-encoding", b"connection",
+                          b"keep-alive", b"upgrade", b"proxy-authorization",
+                          b"proxy-connection", b"te", b"trailer"}
+            fwd_headers = {
+                k: v for k, v in request.headers.raw
+                if k.lower() not in hop_by_hop
+            }
+
             async with httpx.AsyncClient() as client:
                 url = f"{self.target_url}{request.url.path}"
                 if request.url.query:
@@ -119,7 +129,7 @@ def create_app() -> FastAPI:
                     resp = await client.request(
                         method=request.method,
                         url=url,
-                        headers=request.headers.raw,
+                        headers=fwd_headers,
                         content=await request.body(),
                         timeout=30.0,
                     )
@@ -167,21 +177,25 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok", "version": "0.3.0"}
 
-    # 前端静态文件（生产模式）
+    # 前端静态文件服务
+    # - 开发模式：不注册 SPA catch-all，由 ProxyToFrontendMiddleware 代理到 Vite dev server
+    # - 生产模式：挂载 dist 目录，提供构建后的前端资源
+    is_dev_mode = os.getenv("ENV", "dev") == "dev"
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
         assets_dir = frontend_dist / "assets"
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-        # favicon / vite.svg
+        # favicon / vite.svg（两种模式都提供）
         @app.get("/vite.svg", include_in_schema=False)
         async def serve_vite_svg():
             svg_path = frontend_dist / "vite.svg"
             if svg_path.exists():
                 return FileResponse(svg_path)
 
-        # SPA fallback: 所有非 API 路径返回 index.html
+    # SPA fallback 仅在生产模式下注册
+    if not is_dev_mode:
         @app.get("/{full_path:path}", include_in_schema=False)
         async def serve_spa(full_path: str):
             # 已由 API 路由处理的路径不会到达这里
