@@ -328,8 +328,12 @@ def test_each_run_creates_independent_session(runner):
     original_run_turn = ConversationRuntime.run_turn
 
     sessions_seen = []
+    # 强制持有引用，防止 GC 回收导致 id() 复用
+    session_refs = []
+
     def mock_run_turn(self, user_input):
         sessions_seen.append(id(self.session))
+        session_refs.append(self.session)  # 阻止 GC 回收
         from novels_project.session import ConversationMessage, MessageRole, TextBlock
         self.session.messages.append(
             ConversationMessage(
@@ -353,7 +357,7 @@ def test_each_run_creates_independent_session(runner):
     finally:
         ConversationRuntime.run_turn = original_run_turn
 
-    # 两次调用创建了不同的 session 对象
+    # 两次调用创建了不同的 session 对象（持有引用后 id 唯一）
     assert sessions_seen[0] != sessions_seen[1]
     # 每次结果基于自己的 session（无状态泄漏）
     assert result1 == "output_1"
