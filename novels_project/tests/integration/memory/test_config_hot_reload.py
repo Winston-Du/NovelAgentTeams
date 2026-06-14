@@ -89,31 +89,43 @@ def test_reload_clears_summary_compressor_cache(mgr):
 # 场景 3: 无配置文件时 reload 不崩溃
 # ---------------------------------------------------------------------------
 
-def test_reload_without_config_file_does_not_crash(tmp_path):
-    """配置文件不存在时 reload_config 应回退到默认值。"""
-    missing_path = tmp_path / "nonexistent" / "memory_config.yaml"
-    mgr = MemoryManager(project_root=tmp_path, config_path=str(missing_path))
+def test_reload_missing_config_file_preserves_old_config(tmp_path, config_path):
+    """配置文件不存在时 reload_config 保留原有配置。"""
+    # 先加载正常配置
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "global:\n"
+        "  chapter_window: 50\n"
+        "agents:\n"
+        "  plot_writer:\n"
+        "    max_summary_blocks: 8\n",
+        encoding="utf-8",
+    )
+    mgr = MemoryManager(project_root=tmp_path, config_path=str(config_path))
+    assert mgr.get_memory_config("plot_writer").max_summary_blocks == 8
 
-    # 不崩溃
+    # 删除配置文件
+    config_path.unlink()
+
+    # 不崩溃，且保留旧配置
     mgr.reload_config()
-
-    # 使用默认配置
-    cfg = mgr.get_memory_config("main")
-    assert cfg.chapter_window == 100  # 默认值
+    assert mgr.get_memory_config("plot_writer").max_summary_blocks == 8
 
 
 # ---------------------------------------------------------------------------
 # 场景 4: 损坏的 YAML 不影响旧配置（回退到默认值）
 # ---------------------------------------------------------------------------
 
-def test_reload_corrupted_yaml_falls_back_to_defaults(config_path, mgr):
-    """YAML 格式错误时 reload_config 回退到默认值而非崩溃。"""
+def test_reload_corrupted_yaml_preserves_old_config(config_path, mgr):
+    """YAML 格式错误时 reload_config 保留原有配置，不丢失 agent 设置。"""
+    # 初始配置正常
+    assert mgr.get_memory_config("plot_writer").max_summary_blocks == 5
+
     # 写入损坏的 YAML
     config_path.write_text("{{invalid yaml: [}", encoding="utf-8")
 
-    # 重新加载不会崩溃，回退到默认值
+    # 重新加载不会崩溃，且保留旧配置
     mgr.reload_config()
 
-    cfg = mgr.get_memory_config("plot_writer")
-    # plot_writer 没有 agent 覆盖了，使用 global 默认
-    assert cfg.max_summary_blocks == 3  # MemoryConfig 默认值
+    # plot_writer 的 agent 配置仍然有效（不会退化为 global 默认）
+    assert mgr.get_memory_config("plot_writer").max_summary_blocks == 5
