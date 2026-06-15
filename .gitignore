@@ -39,3 +39,103 @@ novels_project/workspaces_registry/
 .trae/
 .workbuddy/
 .vscode/
+
+# ============================================================
+# macOS / Windows 系统文件
+# ============================================================
+.DS_Store
+**/.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ============================================================
+# Python 通用（覆盖整个 monorepo）
+# ============================================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.so
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.env-*/
+
+# 测试 / 覆盖率
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+**/.coverage
+coverage.xml
+coverage.json
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# 分布式 / 实验产物
+*.sqlite3
+*.db
+*.sqlite
+vector_db/
+**/vector_db/
+
+# ============================================================
+# Node / Frontend 通用（每个 frontend 子项目另有 .gitignore）
+# ============================================================
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+*.tsbuildinfo
+.npm
+.eslintcache
+.stylelintcache
+.parcel-cache/
+
+# ============================================================
+# 临时 / 备份
+# ============================================================
+*.bak
+*.swp
+*~
+*.tmp
+*.temp
+*.orig
+*.rej
+.cache/
+.tmp/
+tmp/
+
+# ============================================================
+# IDE
+# ============================================================
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+.atomic-completion.tmp
