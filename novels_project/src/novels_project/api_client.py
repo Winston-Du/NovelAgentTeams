@@ -72,7 +72,7 @@ class ApiRequest:
 class ApiClient(Protocol):
     def stream(self, request: ApiRequest) -> list[AssistantEvent]:
         """Send a request to the LLM and return collected events."""
-        ...
+        ...  # pragma: no cover
 
 
 # === OpenAI SDK Implementation ===
@@ -91,14 +91,29 @@ class OpenAICompatibleClient:
         max_retries: int = 3,
         timeout: float = 300.0,
     ):
+        import httpx
         import openai
+
+        # Configure HTTP client with connection pooling
+        http_client = httpx.Client(
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=20,
+                keepalive_expiry=30.0,
+            ),
+            timeout=httpx.Timeout(timeout, connect=30.0),
+        )
+
         self.client = openai.OpenAI(
             base_url=base_url,
             api_key=api_key,
             max_retries=max_retries,
             timeout=timeout,
+            http_client=http_client,
         )
         self.default_model = default_model
+        self.base_url = base_url
+        self.api_key = api_key
 
     def stream(self, request: ApiRequest, print_stream: bool = True) -> list[AssistantEvent]:
         """

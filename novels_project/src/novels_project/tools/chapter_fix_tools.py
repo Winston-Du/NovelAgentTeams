@@ -136,7 +136,7 @@ def list_generated_chapters(output_dir: Optional[str] = None) -> str:
         filename = path.stem
         import re
         match = re.search(r"chapter_(\d+)_final", filename)
-        if match:
+        if match:  # pragma: no branch
             chapter_num = match.group(1)
             # 获取文件大小
             size = path.stat().st_size

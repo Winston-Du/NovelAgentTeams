@@ -56,10 +56,11 @@ class TestInitialization(unittest.TestCase):
             "环境变量 COMPANY_API_KEY 未设置"
         )
 
-        self.assertIn(
-            ':',
-            api_key,
-            "COMPANY_API_KEY 格式不正确（应为 APP_ID:APP_KEY）"
+        # 兼容传统 APP_ID:APP_KEY 和标准 sk- 格式 API key
+        is_valid = ':' in api_key or api_key.startswith('sk-')
+        self.assertTrue(
+            is_valid,
+            "COMPANY_API_KEY 格式不正确（应为 APP_ID:APP_KEY 或标准 sk- 格式）"
         )
 
     def test_character_cards_format(self):

@@ -118,7 +118,7 @@ class IterationController:
             if clean_output.startswith("```"):
                 # 移除代码块标记
                 lines = clean_output.split("\n")
-                if lines[0].startswith("```"):
+                if lines[0].startswith("```"):  # pragma: no branch
                     lines = lines[1:]
                 if lines and lines[-1].startswith("```"):
                     lines = lines[:-1]

@@ -3,4 +3,4 @@
 
 # 默认项目根目录（小说内容目录）
 # 用户可以修改此路径，指向自己的小说内容存放位置
-project_root: /Users/Winston/Documents/WorkSpace/novel_xuanhuan_output
+project_root: /Users/Winston/Documents/WorkSpace/NovelAgentTeams/workspaces/novel_xuanhuan

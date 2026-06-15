@@ -1,0 +1,5 @@
+master:
+  model: openrouter/owl-alpha
+  temperature: 0.8
+proofreader:
+  enabled: true

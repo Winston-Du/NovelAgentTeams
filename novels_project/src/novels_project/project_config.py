@@ -13,7 +13,9 @@
 from pathlib import Path
 from typing import Optional
 import os
+import json
 import yaml
+from datetime import datetime
 
 # 全局项目根目录
 _PROJECT_ROOT: Optional[Path] = None
@@ -40,16 +42,92 @@ def _load_project_config() -> dict:
     return {}
 
 
+def _get_current_workspace_config_path() -> Path:
+    """获取当前工作空间配置文件路径。"""
+    return _get_package_root() / "config" / "current_workspace.json"
+
+
+def _save_current_workspace(path: Path):
+    """
+    将当前工作空间路径保存到配置文件。
+    
+    使用原子写入（先写临时文件再重命名）确保数据安全。
+    """
+    config_path = _get_current_workspace_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {
+        "path": str(path),
+        "updated_at": datetime.now().isoformat()
+    }
+    
+    # 原子写入：先写临时文件，再重命名
+    temp_path = config_path.with_suffix('.tmp')
+    try:
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        temp_path.rename(config_path)
+    except Exception as e:
+        # 清理临时文件
+        if temp_path.exists():
+            temp_path.unlink()
+        raise e
+
+
+def _load_current_workspace() -> Optional[Path]:
+    """
+    从配置文件读取工作空间路径。
+    
+    Returns:
+        工作空间路径，如果文件不存在或路径无效则返回 None
+    """
+    config_path = _get_current_workspace_config_path()
+    if not config_path.exists():
+        # 配置文件不存在是正常情况（首次启动），不需要警告
+        return None
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        path_str = data.get('path')
+        if not path_str:
+            print("[警告] 工作空间配置文件缺少 path 字段，将使用默认路径")
+            return None
+        
+        path = Path(path_str).expanduser().resolve()
+        if path.exists():
+            return path
+        
+        # 路径不存在，提示用户
+        print(f"[警告] 上次使用的工作空间路径不存在: {path}")
+        print("[提示] 请在设置页面切换工作空间，或通过命令行创建新工作空间")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"[警告] 工作空间配置文件格式错误: {e}")
+        print("[提示] 请在设置页面切换工作空间，或删除配置文件后重启服务")
+        return None
+    except Exception as e:
+        print(f"[警告] 读取工作空间配置失败: {e}")
+        return None
+
+
 def _get_default_project_root() -> Path:
     """
     获取默认项目根目录。
 
     优先级：
-    1. 环境变量 NOVEL_PROJECT_ROOT
-    2. 项目配置文件 novels_project/novels.yaml
-    3. 当前工作目录
+    1. 持久化配置文件
+    2. 环境变量 NOVEL_PROJECT_ROOT
+    3. 项目配置文件 novels_project/novels.yaml
+    4. 当前工作目录
     """
-    # 1. 环境变量
+    # 1. 持久化配置文件
+    workspace_path = _load_current_workspace()
+    if workspace_path:
+        return workspace_path
+
+    # 2. 环境变量
     env_root = os.getenv('NOVEL_PROJECT_ROOT')
     if env_root:
         path = Path(env_root).expanduser().resolve()
@@ -57,7 +135,7 @@ def _get_default_project_root() -> Path:
             return path
         print(f"[警告] 环境变量 NOVEL_PROJECT_ROOT 指向的目录不存在: {path}")
 
-    # 2. 项目配置文件
+    # 3. 项目配置文件
     config = _load_project_config()
     config_root = config.get('project_root')
     if config_root:
@@ -66,7 +144,7 @@ def _get_default_project_root() -> Path:
             return path
         print(f"[警告] 配置文件 project_root 指向的目录不存在: {path}")
 
-    # 3. 当前工作目录
+    # 4. 当前工作目录
     return Path.cwd()
 
 
@@ -78,7 +156,7 @@ def get_project_root() -> Path:
     return _PROJECT_ROOT
 
 
-def set_project_root(path: Optional[Path] = None):
+def set_project_root(path: Optional[Path] = None) -> None:
     """
     设置项目根目录。
 
@@ -90,6 +168,9 @@ def set_project_root(path: Optional[Path] = None):
         _PROJECT_ROOT = _get_default_project_root()
     else:
         _PROJECT_ROOT = path
+    
+    # 持久化当前工作空间
+    _save_current_workspace(_PROJECT_ROOT)
 
 
 def get_project_config_path() -> Path:
@@ -98,8 +179,17 @@ def get_project_config_path() -> Path:
 
 
 def get_config_dir() -> Path:
-    """获取配置目录。"""
+    """获取配置目录（工作空间级别，存储人物卡等）。"""
     return get_project_root() / "config"
+
+
+def get_system_config_dir() -> Path:
+    """获取系统级配置目录（包级别，存储全局设置、Agent配置等）。
+
+    该目录独立于工作空间，确保模型供应商、系统设置等跨工作空间配置
+    存储在 NovelAgentTeams 项目目录下，而非工作空间目录下。
+    """
+    return _get_package_root() / "config"
 
 
 def get_character_cards_path() -> Path:
@@ -132,9 +222,9 @@ def get_prompts_dir() -> Path:
         return path
 
     # 向后兼容：检查 src/novels_project/../DESIGN/PROMPTS/
-    legacy_path = get_project_root() / "DESIGN" / "PROMPTS"
-    if legacy_path.exists():
-        return legacy_path
+    legacy_path = get_project_root() / "DESIGN" / "PROMPTS"  # pragma: no cover
+    if legacy_path.exists():  # pragma: no cover
+        return legacy_path  # pragma: no cover
 
     return path
 

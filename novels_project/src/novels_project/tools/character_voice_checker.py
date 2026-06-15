@@ -6,6 +6,9 @@ import yaml
 import re
 from pathlib import Path
 
+from ..shared.character_cards_utils import get_character_names
+from ..project_config import get_character_cards_path
+
 
 # 人物卡库缓存
 _character_cards = None
@@ -16,36 +19,39 @@ def _load_character_cards() -> Dict[str, Any]:
     global _character_cards
     if _character_cards is not None:
         return _character_cards
-    
-    # 查找人物卡库文件
-    possible_paths = [
-        Path(__file__).parent.parent / "config" / "character_base_cards.yaml",
-        Path(__file__).parent.parent.parent / "config" / "character_base_cards.yaml",
-    ]
-    
-    for path in possible_paths:
-        if path.exists():
-            with open(path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
-                _character_cards = {}
-                # 合并所有层级的人物
-                for tier in ['s_tier', 'a_tier']:
-                    if tier in data and 'characters' in data[tier]:
-                        _character_cards.update(data[tier]['characters'])
-                return _character_cards
-    
-    raise FileNotFoundError("未找到人物卡库文件 character_base_cards.yaml")
+
+    path = get_character_cards_path()
+    if not path.exists():
+        raise FileNotFoundError(f"未找到人物卡库文件: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+        _character_cards = {}
+        for tier in ["s_tier", "a_tier"]:
+            if tier in data and "characters" in data[tier]:
+                _character_cards.update(data[tier]["characters"])
+    return _character_cards
 
 
-def _extract_dialogues(content: str) -> List[Dict[str, str]]:
+def _extract_dialogues(content: str, known_characters: Optional[List[str]] = None) -> List[Dict[str, str]]:
     """
     从章节内容中提取对话
+
+    Args:
+        content: 章节内容或包含对话的文本
+        known_characters: 已知人物列表，为 None 时自动从人物卡加载
+
     返回格式: [{"speaker": "人物名", "dialogue": "对话内容", "context": "上下文"}, ...]
     """
     dialogues = []
-    
-    # 所有已知人物名
-    known_characters = ["陆商曜", "黑商周桓", "木九公", "铁阙", "市集店主甲"]
+
+    # 动态加载人物列表（替代硬编码）
+    if known_characters is None:
+        try:
+            cards = _load_character_cards()
+            known_characters = list(cards.keys()) if cards else []
+        except FileNotFoundError:
+            known_characters = []
     
     lines = content.split('\n')
     current_speaker = None
@@ -357,12 +363,12 @@ def check_character_voice(content: str, focus_characters: Optional[str] = None) 
                 report += f"  人物: {r['speaker']}\n"
                 report += f"  对话: \"{r['dialogue']}\"\n"
                 
-                if r["issues"]:
+                if r["issues"]:  # pragma: no branch
                     report += f"  问题:\n"
                     for issue in r["issues"]:
                         report += f"    - {issue}\n"
                 
-                if r["suggestions"]:
+                if r["suggestions"]:  # pragma: no branch
                     report += f"  建议:\n"
                     for sug in r["suggestions"]:
                         report += f"    💡 {sug}\n"

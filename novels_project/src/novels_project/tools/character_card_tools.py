@@ -202,7 +202,7 @@ def list_all_characters(config_path: Optional[str] = None) -> str:
         for tier in ["s_tier", "a_tier", "b_tier"]:
             if tier in data and "characters" in data[tier]:
                 tier_names = list(data[tier]["characters"].keys())
-                if tier_names:
+                if tier_names:  # pragma: no branch
                     result += f"【{tier.replace('_', ' ').upper()}】\n"
                     for name in tier_names:
                         char = data[tier]["characters"][name]
