@@ -46,6 +46,7 @@ interface AgentConfig {
   [key: string]: unknown;
 }
 
+
 interface AgentConfigResponse {
   agent_id: string;
   config: AgentConfig;
@@ -255,7 +256,7 @@ export default function MemoryManagement({ agentId: externalAgentId }: MemoryMan
                 min={1} max={10} step={1}
                 value={WINDOW_PRESETS.indexOf(chapterWindow) >= 0
                   ? WINDOW_PRESETS.indexOf(chapterWindow) + 1
-                  : Math.round(chapterWindow / 100)}
+                  : Math.max(0, Math.min(9, Math.round(chapterWindow / 100)))}
                 marks={WINDOW_PRESETS.reduce((acc, v, i) => {
                   acc[i + 1] = `${v}`;
                   return acc;
