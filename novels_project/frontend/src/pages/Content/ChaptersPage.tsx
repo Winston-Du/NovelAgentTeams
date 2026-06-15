@@ -325,6 +325,15 @@ export default function ChaptersPage() {
       let deltaCount = 0;
 
       while (!abortController.signal.aborted) {
+        if (abortController.signal.aborted) {
+          console.log('[Agent] handleTurn:READER_CANCELLED_BY_ABORT', {
+            deltaCount,
+            partialContentLength: fullContent.length,
+            elapsedMs: Date.now() - sendStartTime,
+          });
+          reader.cancel();
+          break;
+        }
           console.log('[Agent] handleTurn:READER_CANCELLED_BY_ABORT', {
             deltaCount,
             partialContentLength: fullContent.length,

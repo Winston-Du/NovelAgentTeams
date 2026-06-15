@@ -35,6 +35,37 @@ describe('ChaptersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (contentApi.getChapters as vi.Mock).mockResolvedValue({ data: mockChapters });
+
+test('abort 中止逻辑生效', async () => {
+  // mock 可取消的读取流
+  const mockReader = {
+    read: vi.fn()
+      .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('data: {"event":"message.delta","payload":{"text":"hello"}}\n') })
+      .mockResolvedValueOnce({ done: true, value: new Uint8Array() }),
+    cancel: vi.fn(),
+  };
+  const mockResponse = { body: { getReader: () => mockReader } } as any;
+  (contentApi.sendMessage as vi.Mock).mockResolvedValue(mockResponse);
+
+  renderPage();
+
+  // 触发发送
+  const input = screen.getByPlaceholderText('输入指令…');
+  fireEvent.change(input, { target: { value: 'test' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+
+  // 立刻 abort
+  act(() => {
+    // 取得组件内部的 abortController
+    const abortRef = (agentAbortRef as any).current;
+    abortRef?.abort();
+  });
+
+  await waitFor(() => {
+    expect(mockReader.cancel).toHaveBeenCalled();
+    expect(screen.getByText('指令已提交，Agent 将在后台处理您的请求。')).toBeInTheDocument();
+  });
+});
   });
 
   it('加载并显示章节列表', async () => {
