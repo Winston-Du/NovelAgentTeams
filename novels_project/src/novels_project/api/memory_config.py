@@ -47,7 +47,8 @@ def _save_bundle(bundle: MemoryConfigBundle):
     # 只保存非默认值
     default_global = MemoryConfig()
     data["global"] = {
-        k: v for k, v in global_dict.items() if v != getattr(default_global, k)
+        k: v for k, v in global_dict.items()
+        if v != getattr(default_global, k) and not k.startswith("_")
     }
     # agents
     if bundle.agent_configs:
@@ -55,7 +56,8 @@ def _save_bundle(bundle: MemoryConfigBundle):
         for agent_name, agent_cfg in bundle.agent_configs.items():
             agent_dict = agent_cfg.__dict__.copy()
             data["agents"][agent_name] = {
-                k: v for k, v in agent_dict.items() if v != getattr(default_global, k)
+                k: v for k, v in agent_dict.items()
+                if v != getattr(default_global, k) and not k.startswith("_")
             }
 
     with open(path, "w", encoding="utf-8") as f:
@@ -124,6 +126,11 @@ async def put_memory_config(agent_id: str, body: AgentMemoryConfigRequest):
     merged_dict = existing_data.copy()
     merged_dict.update(filtered)
     new_agent_cfg = MemoryConfig(**merged_dict)
+
+    # 标记 API 显式提供的字段 + 保留旧的显式字段
+    api_explicit = set(filtered.keys())
+    old_explicit = set(getattr(existing, "_explicit_fields", set()))
+    MemoryConfig.mark_explicit(new_agent_cfg, api_explicit | old_explicit)
 
     # 验证配置合法性
     _validate_agent_config(agent_id, new_agent_cfg)

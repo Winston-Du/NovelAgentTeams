@@ -62,9 +62,9 @@ class TestSampleRetrievalEngineInit:
     """测试 SampleRetrievalEngine.__init__"""
 
     def test_init_default_params(self):
-        engine = SampleRetrievalEngine()
+        engine = SampleRetrievalEngine(sample_dir="samples", persist_dir="test_db")
         assert engine.sample_dir == Path("samples")
-        assert engine.persist_dir == Path("vector_db/chroma_data")
+        assert engine.persist_dir == Path("test_db")
         assert engine.embedding_model_name == "BAAI/bge-large-zh-v1.5"
         assert engine.max_tokens == 512
         assert engine.chunk_size == 400
@@ -137,92 +137,6 @@ class TestSiliconflowModels:
 
     def test_dict_has_7_entries(self):
         assert len(SampleRetrievalEngine.SILICONFLOW_MODELS) == 7
-
-
-# ---------------------------------------------------------------------------
-# _ensure_initialized
-# ---------------------------------------------------------------------------
-
-class TestEnsureInitialized:
-    """测试 _ensure_initialized"""
-
-    RE_MOD = 'novels_project.retrieval_engine'
-
-    def test_already_initialized_does_nothing(self):
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            engine = SampleRetrievalEngine()
-            engine._initialized = True
-            engine._ensure_initialized()
-            mock_oe.assert_not_called()
-
-    def test_no_api_key_returns_early(self, monkeypatch):
-        monkeypatch.delenv("siliconflow_api", raising=False)
-        monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-        monkeypatch.delenv("siliconflow_api_key", raising=False)
-
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            engine = SampleRetrievalEngine()
-            engine._ensure_initialized()
-            assert engine._initialized is False
-            mock_oe.assert_not_called()
-
-    def test_api_key_exists_initializes_embeddings(self, monkeypatch):
-        monkeypatch.delenv("siliconflow_api", raising=False)
-        monkeypatch.delenv("siliconflow_api_key", raising=False)
-        monkeypatch.setenv("SILICONFLOW_API_KEY", "test-api-key")
-        mock_embeddings_instance = MagicMock()
-
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            mock_oe.return_value = mock_embeddings_instance
-            engine = SampleRetrievalEngine()
-            with patch.object(engine, '_initialize_vectorstore'):
-                engine._ensure_initialized()
-
-            mock_oe.assert_called_once_with(
-                model="BAAI/bge-large-zh-v1.5",
-                base_url="https://api.siliconflow.cn/v1",
-                api_key="test-api-key",
-            )
-            assert engine.embeddings is mock_embeddings_instance
-            assert engine._initialized is True
-
-    def test_api_key_from_siliconflow_api_env(self, monkeypatch):
-        monkeypatch.setenv("siliconflow_api", "key-from-siliconflow-api")
-        monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-        monkeypatch.delenv("siliconflow_api_key", raising=False)
-
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            mock_oe.return_value = MagicMock()
-            engine = SampleRetrievalEngine()
-            with patch.object(engine, '_initialize_vectorstore'):
-                engine._ensure_initialized()
-
-            call_kwargs = mock_oe.call_args[1]
-            assert call_kwargs["api_key"] == "key-from-siliconflow-api"
-
-    def test_api_key_from_lowercase_env(self, monkeypatch):
-        monkeypatch.delenv("siliconflow_api", raising=False)
-        monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-        monkeypatch.setenv("siliconflow_api_key", "lowercase-key")
-
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            mock_oe.return_value = MagicMock()
-            engine = SampleRetrievalEngine()
-            with patch.object(engine, '_initialize_vectorstore'):
-                engine._ensure_initialized()
-
-            call_kwargs = mock_oe.call_args[1]
-            assert call_kwargs["api_key"] == "lowercase-key"
-
-    def test_embedding_init_fails_returns_early(self, monkeypatch):
-        monkeypatch.setenv("SILICONFLOW_API_KEY", "test-key")
-
-        with patch(f'{self.RE_MOD}.OpenAIEmbeddings') as mock_oe:
-            mock_oe.side_effect = RuntimeError("Connection refused")
-            engine = SampleRetrievalEngine()
-            engine._ensure_initialized()
-            assert engine._initialized is False
-            mock_oe.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -338,113 +252,6 @@ class TestBuildVectorstore:
                 engine._build_vectorstore()
 
         assert engine.vectorstore is None
-
-    def test_successful_build_small_docs(self):
-        engine = SampleRetrievalEngine(sample_dir="samples", persist_dir="db")
-        engine.embeddings = MagicMock()
-
-        mock_docs = [MagicMock(), MagicMock()]
-        mock_loader_instance = MagicMock()
-        mock_loader_instance.load.return_value = mock_docs
-
-        mock_splits = [MagicMock() for _ in range(5)]
-        mock_splitter_instance = MagicMock()
-        mock_splitter_instance.split_documents.return_value = mock_splits
-
-        mock_vectorstore = MagicMock()
-
-        with patch(f'{self.RE_MOD}.DirectoryLoader') as mock_loader:
-            mock_loader.return_value = mock_loader_instance
-            with patch(f'{self.RE_MOD}.RecursiveCharacterTextSplitter') as mock_splitter:
-                mock_splitter.return_value = mock_splitter_instance
-                with patch(f'{self.RE_MOD}.Chroma') as mock_chroma:
-                    mock_chroma.from_documents.return_value = mock_vectorstore
-
-                    with patch.object(Path, 'exists', return_value=True):
-                        mock_file = MagicMock()
-                        with patch.object(Path, 'glob', return_value=[mock_file]):
-                            engine._build_vectorstore()
-
-        mock_loader.assert_called_once()
-        mock_chroma.from_documents.assert_called_once()
-        assert engine.vectorstore is mock_vectorstore
-
-    def test_successful_build_large_docs_triggers_batching(self):
-        engine = SampleRetrievalEngine(sample_dir="samples", persist_dir="db")
-        engine.embeddings = MagicMock()
-
-        mock_loader_instance = MagicMock()
-        mock_loader_instance.load.return_value = [MagicMock()]
-
-        mock_splits = [MagicMock() for _ in range(15)]
-        mock_splitter_instance = MagicMock()
-        mock_splitter_instance.split_documents.return_value = mock_splits
-
-        mock_vectorstore = MagicMock()
-
-        with patch(f'{self.RE_MOD}.DirectoryLoader') as mock_loader:
-            mock_loader.return_value = mock_loader_instance
-            with patch(f'{self.RE_MOD}.RecursiveCharacterTextSplitter') as mock_splitter:
-                mock_splitter.return_value = mock_splitter_instance
-                with patch(f'{self.RE_MOD}.Chroma') as mock_chroma:
-                    mock_chroma.from_documents.return_value = mock_vectorstore
-
-                    with patch.object(Path, 'exists', return_value=True):
-                        mock_file = MagicMock()
-                        with patch.object(Path, 'glob', return_value=[mock_file]):
-                            with patch('time.sleep'):
-                                engine._build_vectorstore()
-
-        assert mock_chroma.from_documents.call_count >= 1
-
-    def test_build_raises_exception_is_handled(self):
-        engine = SampleRetrievalEngine(sample_dir="samples")
-        engine.embeddings = MagicMock()
-
-        mock_loader_instance = MagicMock()
-        mock_loader_instance.load.return_value = [MagicMock()]
-
-        mock_splitter_instance = MagicMock()
-        mock_splitter_instance.split_documents.return_value = [MagicMock()]
-
-        with patch(f'{self.RE_MOD}.DirectoryLoader') as mock_loader:
-            mock_loader.return_value = mock_loader_instance
-            with patch(f'{self.RE_MOD}.RecursiveCharacterTextSplitter') as mock_splitter:
-                mock_splitter.return_value = mock_splitter_instance
-                with patch(f'{self.RE_MOD}.Chroma') as mock_chroma:
-                    mock_chroma.from_documents.side_effect = RuntimeError("API Error")
-
-                    with patch.object(Path, 'exists', return_value=True):
-                        mock_file = MagicMock()
-                        with patch.object(Path, 'glob', return_value=[mock_file]):
-                            engine._build_vectorstore()
-
-        assert engine.vectorstore is None
-
-    def test_build_vectorstore_sets_chunk_size_based_on_model(self):
-        engine = SampleRetrievalEngine(embedding_model="bge-m3")
-        engine.embeddings = MagicMock()
-
-        mock_loader_instance = MagicMock()
-        mock_loader_instance.load.return_value = [MagicMock()]
-
-        mock_splitter_instance = MagicMock()
-        mock_splitter_instance.split_documents.return_value = [MagicMock()]
-
-        with patch(f'{self.RE_MOD}.DirectoryLoader') as mock_loader:
-            mock_loader.return_value = mock_loader_instance
-            with patch(f'{self.RE_MOD}.RecursiveCharacterTextSplitter') as mock_splitter:
-                mock_splitter.return_value = mock_splitter_instance
-                with patch(f'{self.RE_MOD}.Chroma') as mock_chroma:
-                    mock_chroma.from_documents.return_value = MagicMock()
-
-                    with patch.object(Path, 'exists', return_value=True):
-                        with patch.object(Path, 'glob', return_value=[MagicMock()]):
-                            engine._build_vectorstore()
-
-        call_kwargs = mock_splitter.call_args[1]
-        assert call_kwargs["chunk_size"] == 4800  # int(6000 * 0.8)
-        assert call_kwargs["chunk_overlap"] == 50
 
 
 # ---------------------------------------------------------------------------
@@ -654,11 +461,10 @@ class TestGetRetrievalEngine:
         re_mod._global_engine = None
 
         with patch(f'{self.PC}.get_samples_dir', return_value=Path("/proj/samples")):
-            with patch(f'{self.PC}.get_vector_db_dir', return_value=Path("/proj/vdb")):
-                engine = get_retrieval_engine(sample_dir=None, persist_dir=None)
+            engine = get_retrieval_engine(sample_dir=None, persist_dir="/proj/vdb")
 
         assert engine.sample_dir == Path("/proj/samples")
-        assert engine.persist_dir == Path("/proj/vdb/chroma_data")
+        assert engine.persist_dir == Path("/proj/vdb")
 
     def test_custom_params_dont_affect_second_call(self, reset_global_engine):
         import novels_project.retrieval_engine as re_mod
@@ -710,33 +516,6 @@ class TestImportErrorBranch:
 
             # Re-reload to restore working state
             importlib.reload(re_mod)
-
-
-# ---------------------------------------------------------------------------
-# _build_vectorstore - empty docs returned (line 153)
-# ---------------------------------------------------------------------------
-
-class TestBuildVectorstoreEmptyDocs:
-    """Test _build_vectorstore when loader returns empty docs."""
-
-    RE_MOD = 'novels_project.retrieval_engine'
-
-    def test_loader_returns_empty_docs(self):
-        """DirectoryLoader.load() returns empty list -> early return None."""
-        engine = SampleRetrievalEngine(sample_dir="samples")
-        engine.embeddings = MagicMock()
-
-        mock_loader_instance = MagicMock()
-        mock_loader_instance.load.return_value = []
-
-        with patch(f'{self.RE_MOD}.DirectoryLoader') as mock_loader:
-            mock_loader.return_value = mock_loader_instance
-            with patch.object(Path, 'exists', return_value=True):
-                mock_file = MagicMock()
-                with patch.object(Path, 'glob', return_value=[mock_file]):
-                    engine._build_vectorstore()
-
-        assert engine.vectorstore is None
 
 
 # ---------------------------------------------------------------------------

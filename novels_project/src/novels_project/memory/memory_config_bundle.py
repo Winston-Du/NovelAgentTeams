@@ -75,5 +75,5 @@ def _build_config_from_dict(d: dict) -> MemoryConfig:
     未知字段静默忽略（不抛异常）。
     """
     valid_fields = set(MemoryConfig.__dataclass_fields__.keys())
-    filtered = {k: v for k, v in d.items() if k in valid_fields}
+    filtered = {k: v for k, v in d.items() if k in valid_fields and not k.startswith("_")}
     return MemoryConfig(**filtered)

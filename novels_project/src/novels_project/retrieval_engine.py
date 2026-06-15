@@ -277,7 +277,7 @@ class SampleRetrievalEngine:
         """初始化或加载已有的向量库"""
         if self.persist_dir.exists() and any(self.persist_dir.iterdir()):
             try:
-                self.vectorstore = Chroma(persist_directory=str(self.persist_dir), embedding_function=self.embeddings)(
+                self.vectorstore = Chroma(
                     persist_directory=str(self.persist_dir),
                     embedding_function=self.embeddings
                 )
