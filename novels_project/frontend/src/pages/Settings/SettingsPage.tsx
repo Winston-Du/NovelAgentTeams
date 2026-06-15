@@ -698,7 +698,7 @@ export default function SettingsPage() {
         loading={providersLoading}
       >
         {providers.length === 0 ? (
-          <Text type="secondary">暂无模型供应商，点击"添加供应商"开始配置</Text>
+          <Text type="secondary">暂无模型供应商，点击&quot;添加供应商&quot;开始配置</Text>
         ) : (
           <>
             {/* 供应商列表 */}

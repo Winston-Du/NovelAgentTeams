@@ -34,7 +34,7 @@ function renderPage() {
 describe('ChaptersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (contentApi.getChapters as any).mockResolvedValue({ data: mockChapters });
+    (contentApi.getChapters as vi.Mock).mockResolvedValue({ data: mockChapters });
   });
 
   it('加载并显示章节列表', async () => {

@@ -56,7 +56,7 @@ export default function SearchPage() {
       {!loading && searched && (
         <div>
           <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
-            搜索 "{query}"，找到 {total} 条结果
+            搜索 &quot;{query}&quot;，找到 {total} 条结果
           </Text>
 
           {results.length === 0 ? (

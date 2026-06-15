@@ -155,6 +155,7 @@ export default function AgentConfigPage() {
               }
               actions={[
                 <Button
+                  key={key}
                   type="primary"
                   icon={<CheckCircleOutlined />}
                   loading={saving[key]}

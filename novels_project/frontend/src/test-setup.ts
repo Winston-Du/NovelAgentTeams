@@ -2,6 +2,7 @@
  * Vitest 全局 setup
  * 解决 antd 在 jsdom 环境下的 polyfill 缺失问题
  */
+import '@testing-library/jest-dom';
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 

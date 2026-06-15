@@ -324,7 +324,7 @@ export default function ChaptersPage() {
       let fullContent = '';
       let deltaCount = 0;
 
-      while (true) {
+      while (!abortController.signal.aborted) {
         if (abortController.signal.aborted) {
           console.log('[Agent] handleTurn:READER_CANCELLED_BY_ABORT', {
             deltaCount,
@@ -983,7 +983,7 @@ export default function ChaptersPage() {
                   向创作助手发送指令
                 </Text>
                 <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                  例如："帮我创作第3章"
+                  例如：&quot;帮我创作第3章&quot;
                 </Text>
               </div>
             ) : (
