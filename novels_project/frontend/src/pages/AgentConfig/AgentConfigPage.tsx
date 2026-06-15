@@ -7,6 +7,7 @@ import {
   RobotOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { agentApi } from '../../services/api';
+import MemoryManagement from '../../components/AgentConfig/MemoryManagement';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -127,6 +128,11 @@ export default function AgentConfigPage() {
       <Paragraph type="secondary">
         配置各 Agent 的模型参数、行为模式和交互规则。修改后立即生效。
       </Paragraph>
+
+      {/* 分层记忆配置区块 */}
+      <Card style={{ marginBottom: 24 }}>
+        <MemoryManagement />
+      </Card>
 
       <Row gutter={[16, 16]}>
         {Object.entries(agents).map(([key, agent]) => (

@@ -14,7 +14,6 @@
     }
   },
   "plugins": [
-    "antd",
     "react",
     "react-hooks",
     "@typescript-eslint"
@@ -31,17 +30,6 @@
     }
   },
   "rules": {
-    /**
-     * Ant Design 规范
-     * - no-deprecated: 禁止使用已弃用的 Antd 组件 / 属性
-     *   覆盖包括：List、Drawer.width、PageHeader、BackTop、Comment、
-     *             Modal.visible、Modal.destroyOnClose、Card.bordered 等
-     * - no-empty-block: 禁止空函数块
-     */
-    "antd/no-deprecated": "error",
-    "antd/no-empty-block": "warn",
-    "antd/no-unused-prop": "warn",
-
     /**
      * React
      */

@@ -144,3 +144,15 @@ export const memoryApi = {
   sync: () => api.post('/memory/sync'),
   init: () => api.post('/memory/init'),
 };
+
+// ============================================================
+// 分层记忆配置 API
+// ============================================================
+export const memoryConfigApi = {
+  list: () => api.get('/memory-config/agents'),
+  get: (agentId: string) => api.get(`/memory-config/agents/${agentId}`),
+  update: (agentId: string, config: Record<string, unknown>) =>
+    api.put(`/memory-config/agents/${agentId}`, { config }),
+  reset: (agentId: string) =>
+    api.post(`/memory-config/agents/${agentId}/reset`),
+};
