@@ -25,6 +25,7 @@ from .api import (
     settings_router,
     memory_router,
     retrieval_router,
+    memory_config_router,
 )
 from .interfaces.web.agent_sessions_api import router as agent_sessions_router
 from .project_config import set_project_root, get_project_root, ensure_directories
@@ -168,8 +169,8 @@ def create_app() -> FastAPI:
     app.include_router(agent_router, prefix="/api/agents", tags=["Agent 配置"])
     app.include_router(settings_router, prefix="/api/settings", tags=["系统设置"])
     app.include_router(memory_router, prefix="/api/memory", tags=["记忆管理"])
+    app.include_router(memory_config_router, prefix="", tags=["记忆配置"])
     app.include_router(retrieval_router, tags=["向量检索"])
-    # Phase 2: 统一 Agent 会话 API
     app.include_router(agent_sessions_router, tags=["Agent 会话"])
 
     # 健康检查
