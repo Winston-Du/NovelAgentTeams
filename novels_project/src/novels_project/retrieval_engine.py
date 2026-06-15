@@ -157,7 +157,7 @@ class SiliconFlowEmbeddings:
         return self.embed_documents(text)
 
 
-from ..memory.graph_query import GraphQuery
+from .memory.graph_query import GraphQuery
 
 class LRUCache:
     """Simple fixed-size LRU cache for graph queries."""

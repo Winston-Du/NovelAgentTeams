@@ -151,16 +151,18 @@ export default function MemoryManagement({ agentId: externalAgentId }: MemoryMan
     return <Empty description="暂无配置数据" />;
   }
 
-  const chapterWindow = (draft.chapter_window ?? 100) as number;
-  const summaryBlocks = (draft.max_summary_blocks ?? 3) as number;
-  const dialogueThreshold = (draft.dialogue_compression_threshold ?? 0.8) as number;
-  const preserveMessages = (draft.preserve_recent_messages ?? 4) as number;
-  const summaryMaxChars = (draft.dialogue_summary_max_chars ?? 4000) as number;
-  const contextMaxChars = (draft.dialogue_context_summary_max_chars ?? 1500) as number;
-  const maxRetries = (draft.dialogue_compression_max_retries ?? 2) as number;
-  const subagentEnabled = (draft.subagent_compression_enabled ?? true) as boolean;
-  const subagentMaxMessages = (draft.subagent_max_messages ?? 30) as number;
-  const autoCompactionThreshold = (draft.auto_compaction_threshold ?? 100000) as number;
+  // 默认值统一从后端 global_config 派生（API 已返回），避免维护两份默认值
+  const fallback = data?.global_config || {};
+  const chapterWindow = (draft.chapter_window ?? fallback.chapter_window ?? 100) as number;
+  const summaryBlocks = (draft.max_summary_blocks ?? fallback.max_summary_blocks ?? 3) as number;
+  const dialogueThreshold = (draft.dialogue_compression_threshold ?? fallback.dialogue_compression_threshold ?? 0.8) as number;
+  const preserveMessages = (draft.preserve_recent_messages ?? fallback.preserve_recent_messages ?? 4) as number;
+  const summaryMaxChars = (draft.dialogue_summary_max_chars ?? fallback.dialogue_summary_max_chars ?? 4000) as number;
+  const contextMaxChars = (draft.dialogue_context_summary_max_chars ?? fallback.dialogue_context_summary_max_chars ?? 1500) as number;
+  const maxRetries = (draft.dialogue_compression_max_retries ?? fallback.dialogue_compression_max_retries ?? 2) as number;
+  const subagentEnabled = (draft.subagent_compression_enabled ?? fallback.subagent_compression_enabled ?? true) as boolean;
+  const subagentMaxMessages = (draft.subagent_max_messages ?? fallback.subagent_max_messages ?? 30) as number;
+  const autoCompactionThreshold = (draft.auto_compaction_threshold ?? fallback.auto_compaction_threshold ?? 100000) as number;
 
   const cardSection = (icon: React.ReactNode, title: string, children: React.ReactNode) => (
     <Card

@@ -116,7 +116,12 @@ async def put_memory_config(agent_id: str, body: AgentMemoryConfigRequest):
 
     # 获取现有 agent 配置（或创建新）
     existing = bundle.agent_configs.get(agent_id, MemoryConfig())
-    merged_dict = existing.__dict__.copy()
+    # 过滤掉内部字段（_explicit_fields 等 init=False 的字段）
+    existing_data = {
+        k: v for k, v in existing.__dict__.items()
+        if k in MemoryConfig.__dataclass_fields__ and not k.startswith("_")
+    }
+    merged_dict = existing_data.copy()
     merged_dict.update(filtered)
     new_agent_cfg = MemoryConfig(**merged_dict)
 
