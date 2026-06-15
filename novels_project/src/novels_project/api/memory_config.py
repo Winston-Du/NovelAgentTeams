@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import yaml
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..project_config import get_config_dir, get_project_root
+from ..project_config import get_config_dir
 from ..memory.memory_config import MemoryConfig
 from ..memory.memory_config_bundle import MemoryConfigBundle
 
@@ -61,6 +60,14 @@ def _save_bundle(bundle: MemoryConfigBundle):
 
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
+def _validate_agent_config(agent_id: str, cfg: MemoryConfig):
+    """校验 agent 配置，非法时抛出 400。"""
+    errors = cfg.validate()
+    if errors:
+        detail = "; ".join(errors)
+        raise HTTPException(status_code=400, detail=f"{agent_id} 配置验证失败: {detail}")
 
 
 @router.get("/api/memory-config/agents/{agent_id}")
@@ -112,6 +119,9 @@ async def put_memory_config(agent_id: str, body: AgentMemoryConfigRequest):
     merged_dict = existing.__dict__.copy()
     merged_dict.update(filtered)
     new_agent_cfg = MemoryConfig(**merged_dict)
+
+    # 验证配置合法性
+    _validate_agent_config(agent_id, new_agent_cfg)
 
     # 更新并保存
     bundle.agent_configs[agent_id] = new_agent_cfg
