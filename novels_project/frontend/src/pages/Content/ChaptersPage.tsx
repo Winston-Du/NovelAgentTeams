@@ -334,13 +334,6 @@ export default function ChaptersPage() {
           reader.cancel();
           break;
         }
-          console.log('[Agent] handleTurn:READER_CANCELLED_BY_ABORT', {
-            deltaCount,
-            partialContentLength: fullContent.length,
-            elapsedMs: Date.now() - sendStartTime,
-          });
-          reader.cancel();
-          break;
         }
         const { done, value } = await reader.read();
         if (done) {
