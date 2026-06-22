@@ -1,0 +1,16 @@
+orchestrator:
+  execution:
+    poll_interval: 0.05          # 编排器轮询可执行任务间隔（秒）
+    stop_on_failure: false       # 任一任务失败时是否立即停止
+  planner:
+    max_depth: 5                 # 任务分解最大递归深度
+  scheduler:
+    mode: PRIORITY               # FIFO 或 PRIORITY
+    poll_interval: 0.05          # 调度器主循环轮询间隔（秒）
+  retry:
+    max_retries: 3
+    delay: 1.0
+    policy_type: exponential     # none / fixed / linear / exponential
+    transient_exceptions:
+      - ConnectionError
+      - TimeoutError
